@@ -1,0 +1,202 @@
+"""Employee browser for published uploaded policy files."""
+
+import streamlit as st
+
+from authentication.current_user import AuthenticatedUser
+from database.session import SessionFactory
+from modules.policy_qa.policy_assistant import PolicyAssistant
+from config.settings import get_settings
+from services.policy_service import PolicyService
+
+
+def _source_caption(source) -> str:
+    """Build a readable file-grounded source caption."""
+
+    parts = [
+        source.filename or "Manual policy entry",
+        source.title,
+        source.section_heading,
+        f"Version {source.version}",
+    ]
+
+    if source.page_number is not None:
+        parts.append(f"Page {source.page_number}")
+
+    if source.uploaded_at:
+        parts.append(
+            "Uploaded "
+            + PolicyService.format_datetime(
+                source.uploaded_at,
+                get_settings().display_timezone,
+            )
+        )
+
+    return " · ".join(parts)
+
+
+def render_employee_policies_page(
+    current_user: AuthenticatedUser,
+) -> None:
+    """Browse and ask questions about approved policy files."""
+
+    st.title("Company Policies")
+    st.caption(
+        "Only active published files from your company are available. "
+        "Versions moved to the Bin are excluded."
+    )
+
+    with SessionFactory() as session:
+        service = PolicyService(session)
+        all_policies = service.list_published(
+            current_user.company_id
+        )
+        document_map = service.get_document_map(
+            company_id=current_user.company_id,
+            policies=all_policies,
+        )
+
+    categories = sorted(
+        {
+            policy.category
+            for policy in all_policies
+        }
+    )
+
+    filter_columns = st.columns([2, 1])
+
+    with filter_columns[0]:
+        search_text = st.text_input(
+            "Search Policies",
+            placeholder=(
+                "Search title, category, or extracted file content..."
+            ),
+        )
+
+    with filter_columns[1]:
+        category = st.selectbox(
+            "Category",
+            options=["All Categories", *categories],
+        )
+
+    with SessionFactory() as session:
+        filtered_policies = PolicyService(
+            session
+        ).search_published(
+            company_id=current_user.company_id,
+            search_text=search_text,
+            category=(
+                None
+                if category == "All Categories"
+                else category
+            ),
+        )
+
+    if not filtered_policies:
+        st.info("No matching approved policy files were found.")
+    else:
+        for policy in filtered_policies:
+            document = document_map.get(policy.id)
+            source_name = (
+                document.original_filename
+                if document
+                else "Manual policy entry"
+            )
+
+            with st.expander(
+                f"{policy.title} · v{policy.version}"
+            ):
+                st.caption(
+                    f"Source: {source_name} · "
+                    f"Category: {policy.category} · "
+                    "Uploaded: "
+                    + PolicyService.format_datetime(
+                        policy.created_at,
+                        get_settings().display_timezone,
+                    )
+                )
+
+                if policy.summary:
+                    st.markdown(
+                        f"**Summary:** {policy.summary}"
+                    )
+
+                # Display the extracted source text, not an AI rewrite.
+                st.text(policy.content)
+
+    st.subheader("Download Approved Source File")
+
+    downloadable = {
+        (
+            f"{policy.title} v{policy.version} — "
+            f"{document_map[policy.id].original_filename}"
+        ): policy.id
+        for policy in filtered_policies
+        if policy.id in document_map
+    }
+
+    if downloadable:
+        selected_label = st.selectbox(
+            "Approved Policy File",
+            options=list(downloadable),
+        )
+
+        with SessionFactory() as session:
+            download = PolicyService(
+                session
+            ).get_policy_download(
+                company_id=current_user.company_id,
+                policy_id=downloadable[selected_label],
+                published_only=True,
+            )
+
+        st.download_button(
+            "Download Policy File",
+            data=download.data,
+            file_name=download.filename,
+            mime=download.mime_type,
+            use_container_width=True,
+        )
+    else:
+        st.info(
+            "No uploaded source file is available for the "
+            "current policy selection."
+        )
+
+    st.divider()
+    st.subheader("Ask About Company Policies")
+
+    with st.form("employee_policy_question_form"):
+        question = st.text_area(
+            "Question",
+            height=100,
+            placeholder=(
+                "Example: How many annual leave days "
+                "can an employee use?"
+            ),
+        )
+
+        ask_submitted = st.form_submit_button(
+            "Ask Policy Assistant",
+            type="primary",
+            use_container_width=True,
+        )
+
+    if ask_submitted:
+        if len(question.strip()) < 3:
+            st.error("Enter a complete policy question.")
+            return
+
+        with SessionFactory() as session:
+            response = PolicyAssistant(session).answer(
+                company_id=current_user.company_id,
+                question=question,
+            )
+
+        st.markdown("### Answer")
+        st.write(response.answer)
+
+        if response.sources:
+            st.markdown("**Sources**")
+
+            for source in response.sources:
+                st.caption(_source_caption(source))

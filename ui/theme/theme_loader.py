@@ -1,0 +1,2324 @@
+"""Apply the centralized fixed Light Mode UI theme.
+
+Purpose:
+- Convert shared design tokens into global CSS variables.
+- Keep the Streamlit sidebar permanently expanded.
+- Ensure text, labels, text inputs, date inputs, selectboxes, forms,
+  alerts, inputs, and buttons remain readable in Light Mode.
+
+Debugging note:
+When a Streamlit upgrade changes widget appearance, inspect the browser's
+data-testid attributes and update only the widget selector section below.
+"""
+
+import streamlit as st
+import streamlit.components.v1 as components
+
+from ui.theme.color_palette import build_accent_palette
+from ui.theme.design_tokens import DARK_THEME, LIGHT_THEME
+from ui.theme.theme_state import get_active_theme
+
+
+# Fallback values protect the UI when a future theme dictionary is missing
+# one or more optional tokens.
+_REQUIRED_DEFAULTS: dict[str, str] = {
+    "background": "#F7F9FC",
+    "surface": "#FFFFFF",
+    "surface_secondary": "#F3F5FA",
+    "text_primary": "#10172A",
+    "text_secondary": "#5C6680",
+    "primary": "#4338E8",
+    "primary_hover": "#372FD0",
+    "primary_soft": "#EEF0FF",
+    "border": "#E3E7F0",
+    "success": "#18B66A",
+    "warning": "#F5A623",
+    "danger": "#E05252",
+    "shadow": "0 8px 30px rgba(24, 36, 74, 0.08)",
+}
+
+def _get_theme_tokens(
+    primary_color: str | None = None,
+) -> dict[str, str]:
+    """Return complete Light Mode tokens with a company accent."""
+
+    selected_theme = (
+        DARK_THEME
+        if get_active_theme() == "dark"
+        else LIGHT_THEME
+    )
+
+    # Selected values override defaults while missing keys remain safe.
+    tokens = {
+        **_REQUIRED_DEFAULTS,
+        **selected_theme,
+    }
+    tokens.update(
+        build_accent_palette(
+            primary_color
+            or tokens["primary"]
+        )
+    )
+
+    return tokens
+
+
+
+
+def _synchronize_theme_with_browser(
+    active_theme: str,
+) -> None:
+    """Synchronize URL theme state with browser localStorage.
+
+    The browser stores only the value ``light`` or ``dark``. No account,
+    password, company, or employee information is written to localStorage.
+    """
+
+    # A template replacement avoids Python f-string conflicts with
+    # JavaScript braces.
+    script = """
+        <script>
+        (() => {
+            const storageKey = "ai_hr_assistant_theme";
+            const activeTheme = "__ACTIVE_THEME__";
+            const validThemes = new Set(["light"]);
+            const parentWindow = window.parent;
+            const currentUrl = new URL(parentWindow.location.href);
+            const urlTheme = currentUrl.searchParams.get("theme");
+
+            let savedTheme = null;
+
+            try {
+                savedTheme = parentWindow.localStorage.getItem(
+                    storageKey
+                );
+            } catch (error) {
+                // URL persistence still works when storage is disabled.
+            }
+
+            if (validThemes.has(urlTheme)) {
+                try {
+                    parentWindow.localStorage.setItem(
+                        storageKey,
+                        urlTheme
+                    );
+                } catch (error) {
+                    // Safe to ignore blocked browser storage.
+                }
+                return;
+            }
+
+            if (
+                validThemes.has(savedTheme)
+                && savedTheme !== activeTheme
+            ) {
+                currentUrl.searchParams.set("theme", savedTheme);
+
+                // Reload once so Python receives the restored theme.
+                parentWindow.location.replace(
+                    currentUrl.toString()
+                );
+                return;
+            }
+
+            try {
+                parentWindow.localStorage.setItem(
+                    storageKey,
+                    activeTheme
+                );
+            } catch (error) {
+                // The query parameter remains the fallback.
+            }
+
+            currentUrl.searchParams.set("theme", activeTheme);
+
+            // Update the address without triggering another rerun.
+            parentWindow.history.replaceState(
+                null,
+                "",
+                currentUrl.toString()
+            );
+        })();
+        </script>
+    """.replace("__ACTIVE_THEME__", active_theme)
+
+    components.html(
+        script,
+        height=0,
+        width=0,
+    )
+
+
+def _enforce_input_value_contrast(
+    tokens: dict[str, str],
+) -> None:
+    """Keep every form value readable on proper Light Mode controls.
+
+    Streamlit uses runtime-generated BaseWeb/Emotion classes that may be
+    inserted after custom CSS. The MutationObserver reapplies visual styles
+    only; it never reads, stores, or transmits form values.
+    """
+
+    script = """
+        <script>
+        (() => {
+            const parentDocument = window.parent.document;
+
+            const inputBackground = '#252630';
+            const inputHoverBackground = '#2D2F3A';
+            const inputText = '#FFFFFF';
+            const mutedText = '#B9BED0';
+            const borderColor = '#3A3D4A';
+            const hoverBorder = '__PRIMARY__';
+            const primaryColor = '__PRIMARY__';
+            const iconColor = '#C7CCDA';
+            const softPrimary = '__PRIMARY_SOFT__';
+            const onPrimary = '__ON_PRIMARY__';
+            const primaryRgb = '__PRIMARY_RGB__';
+
+            const setImportant = (
+                element,
+                property,
+                value
+            ) => {
+                if (!element) {
+                    return;
+                }
+
+                element.style.setProperty(
+                    property,
+                    value,
+                    'important'
+                );
+            };
+
+            const applyControlState = (control) => {
+                if (!control) {
+                    return;
+                }
+
+                const focused = control.contains(
+                    parentDocument.activeElement
+                );
+                const hovered = control.matches(':hover');
+
+                setImportant(
+                    control,
+                    'background',
+                    hovered && !focused
+                        ? inputHoverBackground
+                        : inputBackground
+                );
+                setImportant(
+                    control,
+                    'background-color',
+                    hovered && !focused
+                        ? inputHoverBackground
+                        : inputBackground
+                );
+                setImportant(
+                    control,
+                    'border-color',
+                    focused
+                        ? primaryColor
+                        : hovered
+                            ? hoverBorder
+                            : borderColor
+                );
+                setImportant(
+                    control,
+                    'box-shadow',
+                    focused
+                        ? `0 0 0 1px ${primaryColor}`
+                        : 'none'
+                );
+                setImportant(
+                    control,
+                    'color-scheme',
+                    'dark'
+                );
+            };
+
+            const bindControlEvents = (control) => {
+                if (
+                    !control
+                    || control.dataset.hrLightControlBound
+                ) {
+                    return;
+                }
+
+                control.dataset.hrLightControlBound = 'true';
+
+                [
+                    'mouseenter',
+                    'mouseleave',
+                    'focusin',
+                    'focusout'
+                ].forEach((eventName) => {
+                    control.addEventListener(
+                        eventName,
+                        () => applyControlState(control)
+                    );
+                });
+            };
+
+            const styleEditableFields = () => {
+                const fieldSelectors = [
+                    '[data-testid="stTextInput"] input',
+                    '[data-testid="stNumberInput"] input',
+                    '[data-testid="stDateInput"] input',
+                    '[data-testid="stTimeInput"] input',
+                    '[data-testid="stTextArea"] textarea',
+                    'input[aria-label="Company Code"]',
+                    'input[aria-label="Username or Email"]',
+                    'input[aria-label="Password"]',
+                    'input[aria-label="Current Password"]',
+                    'input[aria-label="New Password"]',
+                    'input[aria-label="Confirm New Password"]'
+                ];
+
+                parentDocument
+                    .querySelectorAll(fieldSelectors.join(','))
+                    .forEach((field) => {
+                        const fieldText = field.disabled
+                            ? mutedText
+                            : inputText;
+
+                        setImportant(field, 'color', fieldText);
+                        setImportant(
+                            field,
+                            '-webkit-text-fill-color',
+                            fieldText
+                        );
+                        setImportant(
+                            field,
+                            'caret-color',
+                            primaryColor
+                        );
+                        setImportant(
+                            field,
+                            'background-color',
+                            'transparent'
+                        );
+                        setImportant(
+                            field,
+                            'color-scheme',
+                            'dark'
+                        );
+                        setImportant(
+                            field,
+                            'text-shadow',
+                            'none'
+                        );
+                        setImportant(field, 'opacity', '1');
+
+                        const control = field.closest(
+                            '[data-baseweb="input"],'
+                            + '[data-baseweb="base-input"],'
+                            + '[data-baseweb="textarea"]'
+                        );
+
+                        if (!control) {
+                            return;
+                        }
+
+                        bindControlEvents(control);
+                        applyControlState(control);
+
+                        control
+                            .querySelectorAll(
+                                'input, textarea, span'
+                            )
+                            .forEach((child) => {
+                                setImportant(
+                                    child,
+                                    'color',
+                                    fieldText
+                                );
+                                setImportant(
+                                    child,
+                                    '-webkit-text-fill-color',
+                                    fieldText
+                                );
+                            });
+
+                        control
+                            .querySelectorAll('svg')
+                            .forEach((icon) => {
+                                setImportant(
+                                    icon,
+                                    'color',
+                                    iconColor
+                                );
+                                setImportant(
+                                    icon,
+                                    'fill',
+                                    'currentColor'
+                                );
+                            });
+                    });
+            };
+
+            const styleSelectBoxes = () => {
+                parentDocument
+                    .querySelectorAll(
+                        '[data-baseweb="select"]'
+                    )
+                    .forEach((selectRoot) => {
+                        const control =
+                            selectRoot.firstElementChild;
+
+                        bindControlEvents(control);
+                        applyControlState(control);
+
+                        setImportant(
+                            selectRoot,
+                            'color',
+                            inputText
+                        );
+                        setImportant(
+                            selectRoot,
+                            '-webkit-text-fill-color',
+                            inputText
+                        );
+
+                        selectRoot
+                            .querySelectorAll('*')
+                            .forEach((element) => {
+                                if (element.tagName === 'SVG') {
+                                    setImportant(
+                                        element,
+                                        'color',
+                                        iconColor
+                                    );
+                                    setImportant(
+                                        element,
+                                        'fill',
+                                        'currentColor'
+                                    );
+                                    return;
+                                }
+
+                                setImportant(
+                                    element,
+                                    'color',
+                                    inputText
+                                );
+                                setImportant(
+                                    element,
+                                    '-webkit-text-fill-color',
+                                    inputText
+                                );
+                                setImportant(
+                                    element,
+                                    'opacity',
+                                    '1'
+                                );
+
+                                if (element.tagName === 'INPUT') {
+                                    setImportant(
+                                        element,
+                                        'caret-color',
+                                        primaryColor
+                                    );
+                                    setImportant(
+                                        element,
+                                        'background-color',
+                                        'transparent'
+                                    );
+                                }
+                            });
+                    });
+            };
+
+            const styleDropdownMenus = () => {
+                const surfaces = parentDocument.querySelectorAll(
+                    '[data-baseweb="popover"] '
+                    + '[role="listbox"],'
+                    + '[data-baseweb="menu"],'
+                    + '[data-baseweb="calendar"]'
+                );
+
+                surfaces.forEach((surface) => {
+                    setImportant(
+                        surface,
+                        'background',
+                        inputBackground
+                    );
+                    setImportant(
+                        surface,
+                        'background-color',
+                        inputBackground
+                    );
+                    setImportant(
+                        surface,
+                        'color',
+                        inputText
+                    );
+                    setImportant(
+                        surface,
+                        'border-color',
+                        borderColor
+                    );
+                    setImportant(
+                        surface,
+                        'color-scheme',
+                        'light'
+                    );
+
+                    surface
+                        .querySelectorAll('*')
+                        .forEach((element) => {
+                            if (element.tagName === 'SVG') {
+                                setImportant(
+                                    element,
+                                    'color',
+                                    iconColor
+                                );
+                                setImportant(
+                                    element,
+                                    'fill',
+                                    'currentColor'
+                                );
+                                return;
+                            }
+
+                            setImportant(
+                                element,
+                                'color',
+                                inputText
+                            );
+                            setImportant(
+                                element,
+                                '-webkit-text-fill-color',
+                                inputText
+                            );
+                        });
+                });
+
+                parentDocument
+                    .querySelectorAll(
+                        '[data-baseweb="popover"] '
+                        + '[role="option"],'
+                        + '[data-baseweb="menu"] '
+                        + '[role="option"]'
+                    )
+                    .forEach((option) => {
+                        if (
+                            !option.dataset.hrLightOptionBound
+                        ) {
+                            option.dataset.hrLightOptionBound = 'true';
+
+                            option.addEventListener(
+                                'mouseenter',
+                                () => {
+                                    setImportant(
+                                        option,
+                                        'background',
+                                        softPrimary
+                                    );
+                                }
+                            );
+                            option.addEventListener(
+                                'mouseleave',
+                                () => {
+                                    setImportant(
+                                        option,
+                                        'background',
+                                        'transparent'
+                                    );
+                                }
+                            );
+                        }
+                    });
+            };
+
+const styleTooltips = () => {
+    const tooltipSelectors = [
+        '[role="tooltip"]',
+        '[data-baseweb="tooltip"]',
+        '[data-testid="stTooltipContent"]'
+    ];
+
+    parentDocument
+        .querySelectorAll(
+            tooltipSelectors.join(',')
+        )
+        .forEach((tooltip) => {
+            setImportant(
+                tooltip,
+                'color',
+                '#FFFFFF'
+            );
+            setImportant(
+                tooltip,
+                '-webkit-text-fill-color',
+                '#FFFFFF'
+            );
+            setImportant(
+                tooltip,
+                'background',
+                '#252630'
+            );
+            setImportant(
+                tooltip,
+                'background-color',
+                '#252630'
+            );
+            setImportant(
+                tooltip,
+                'border',
+                '1px solid #3A3D4A'
+            );
+            setImportant(
+                tooltip,
+                'box-shadow',
+                '0 8px 24px rgba(0, 0, 0, 0.28)'
+            );
+            setImportant(
+                tooltip,
+                'color-scheme',
+                'dark'
+            );
+
+            tooltip
+                .querySelectorAll('*')
+                .forEach((element) => {
+                    setImportant(
+                        element,
+                        'color',
+                        '#FFFFFF'
+                    );
+                    setImportant(
+                        element,
+                        '-webkit-text-fill-color',
+                        '#FFFFFF'
+                    );
+
+                    if (element.tagName === 'SVG') {
+                        setImportant(
+                            element,
+                            'fill',
+                            'currentColor'
+                        );
+                    }
+                });
+        });
+};
+
+
+const styleDownloadButtons = () => {
+    const selectors = [
+        '[data-testid="stDownloadButton"] > a',
+        '[data-testid="stDownloadButton"] > button',
+        '[data-testid="stDownloadButton"] '
+            + 'a[data-testid^="stBaseButton"]',
+        '[data-testid="stDownloadButton"] '
+            + 'button[data-testid^="stBaseButton"]'
+    ];
+
+    parentDocument
+        .querySelectorAll(selectors.join(','))
+        .forEach((action) => {
+            const disabled = (
+                action.matches(':disabled')
+                || action.getAttribute(
+                    'aria-disabled'
+                ) === 'true'
+            );
+            const focused = (
+                action.matches(':focus-visible')
+                || parentDocument.activeElement === action
+            );
+            const hovered = action.matches(':hover');
+            const activeSurface = hovered || focused;
+
+            const foreground = disabled
+                ? '#8A93A8'
+                : activeSurface
+                    ? onPrimary
+                    : '#10172A';
+            const background = disabled
+                ? '#EEF1F6'
+                : activeSurface
+                    ? primaryColor
+                    : '#FFFFFF';
+            const border = disabled
+                ? '#E0E4EC'
+                : activeSurface
+                    ? primaryColor
+                    : '#D8DEEA';
+
+            setImportant(action, 'color', foreground);
+            setImportant(
+                action,
+                '-webkit-text-fill-color',
+                foreground
+            );
+            setImportant(action, 'background', background);
+            setImportant(
+                action,
+                'background-color',
+                background
+            );
+            setImportant(action, 'border-color', border);
+            setImportant(
+                action,
+                'box-shadow',
+                focused
+                    ? `0 0 0 3px rgba(${primaryRgb}, 0.22)`
+                    : 'none'
+            );
+            setImportant(
+                action,
+                'text-decoration',
+                'none'
+            );
+
+            action
+                .querySelectorAll('*')
+                .forEach((child) => {
+                    setImportant(
+                        child,
+                        'color',
+                        foreground
+                    );
+                    setImportant(
+                        child,
+                        '-webkit-text-fill-color',
+                        foreground
+                    );
+
+                    if (child.tagName === 'SVG') {
+                        setImportant(
+                            child,
+                            'fill',
+                            'currentColor'
+                        );
+                    }
+                });
+
+            if (!action.dataset.hrDownloadHoverBound) {
+                action.dataset.hrDownloadHoverBound = 'true';
+
+                [
+                    'mouseenter',
+                    'mouseleave',
+                    'focus',
+                    'blur'
+                ].forEach((eventName) => {
+                    action.addEventListener(
+                        eventName,
+                        scheduleApply
+                    );
+                });
+            }
+        });
+};
+
+
+const styleToasts = () => {
+    const toastSelectors = [
+        '[data-testid="stToast"]',
+        '[data-baseweb="toast"]'
+    ];
+
+    parentDocument
+        .querySelectorAll(toastSelectors.join(','))
+        .forEach((toast) => {
+            const hovered = toast.matches(':hover');
+            const surface = hovered
+                ? '#2D2F3A'
+                : '#252630';
+
+            setImportant(toast, 'color', '#FFFFFF');
+            setImportant(
+                toast,
+                '-webkit-text-fill-color',
+                '#FFFFFF'
+            );
+            setImportant(toast, 'background', surface);
+            setImportant(
+                toast,
+                'background-color',
+                surface
+            );
+            setImportant(
+                toast,
+                'border',
+                '1px solid #3A3D4A'
+            );
+            setImportant(
+                toast,
+                'box-shadow',
+                '0 10px 28px rgba(0, 0, 0, 0.34)'
+            );
+            setImportant(
+                toast,
+                'color-scheme',
+                'dark'
+            );
+
+            toast
+                .querySelectorAll(
+                    'p, span, div, strong, em'
+                )
+                .forEach((element) => {
+                    setImportant(
+                        element,
+                        'color',
+                        '#FFFFFF'
+                    );
+                    setImportant(
+                        element,
+                        '-webkit-text-fill-color',
+                        '#FFFFFF'
+                    );
+                    setImportant(element, 'opacity', '1');
+                    setImportant(
+                        element,
+                        'text-shadow',
+                        'none'
+                    );
+                });
+
+            toast
+                .querySelectorAll('svg')
+                .forEach((icon) => {
+                    setImportant(
+                        icon,
+                        'color',
+                        '#31C77A'
+                    );
+                    setImportant(
+                        icon,
+                        'fill',
+                        'currentColor'
+                    );
+                });
+
+            toast
+                .querySelectorAll('button')
+                .forEach((button) => {
+                    setImportant(
+                        button,
+                        'color',
+                        '#C7CCDA'
+                    );
+                    setImportant(
+                        button,
+                        '-webkit-text-fill-color',
+                        '#C7CCDA'
+                    );
+                    setImportant(
+                        button,
+                        'background',
+                        'transparent'
+                    );
+                    setImportant(
+                        button,
+                        'background-color',
+                        'transparent'
+                    );
+                    setImportant(
+                        button,
+                        'border-color',
+                        'transparent'
+                    );
+
+                    button
+                        .querySelectorAll('svg')
+                        .forEach((icon) => {
+                            setImportant(
+                                icon,
+                                'color',
+                                '#C7CCDA'
+                            );
+                            setImportant(
+                                icon,
+                                'fill',
+                                'currentColor'
+                            );
+                        });
+                });
+
+            if (!toast.dataset.hrToastHoverBound) {
+                toast.dataset.hrToastHoverBound = 'true';
+
+                [
+                    'mouseenter',
+                    'mouseleave'
+                ].forEach((eventName) => {
+                    toast.addEventListener(
+                        eventName,
+                        scheduleApply
+                    );
+                });
+            }
+        });
+};
+
+let frameRequested = false;
+
+const applyLightControls = () => {
+    frameRequested = false;
+    styleEditableFields();
+    styleSelectBoxes();
+    styleDropdownMenus();
+    styleTooltips();
+    styleDownloadButtons();
+    styleToasts();
+};
+
+            const scheduleApply = () => {
+                if (frameRequested) {
+                    return;
+                }
+
+                frameRequested = true;
+                parentDocument.defaultView.requestAnimationFrame(
+                    applyLightControls
+                );
+            };
+
+            scheduleApply();
+
+            const observer = new MutationObserver(scheduleApply);
+
+            observer.observe(
+                parentDocument.documentElement,
+                {
+                    childList: true,
+                    subtree: true,
+                    attributes: true,
+                    attributeFilter: [
+                        'class',
+                        'style',
+                        'aria-expanded'
+                    ]
+                }
+            );
+        })();
+        </script>
+        """
+
+    script = (
+        script
+        .replace("__PRIMARY__", tokens["primary"])
+        .replace("__PRIMARY_SOFT__", tokens["primary_soft"])
+        .replace("__PRIMARY_RGB__", tokens["primary_rgb"])
+        .replace("__ON_PRIMARY__", tokens["on_primary"])
+    )
+
+    components.html(
+        script,
+        height=0,
+        width=0,
+    )
+
+
+def apply_theme(
+    primary_color: str | None = None,
+) -> None:
+    """Inject Light Mode CSS using the company accent color."""
+
+    tokens = _get_theme_tokens(primary_color)
+
+    css = f"""
+    <style>
+    /* =========================================================
+       SHARED DESIGN VARIABLES
+    ========================================================= */
+    :root {{
+        --hr-bg: {tokens["background"]};
+        --hr-surface: {tokens["surface"]};
+        --hr-surface-secondary: {tokens["surface_secondary"]};
+        --hr-text-primary: {tokens["text_primary"]};
+        --hr-text-secondary: {tokens["text_secondary"]};
+        --hr-primary: {tokens["primary"]};
+        --hr-primary-hover: {tokens["primary_hover"]};
+        --hr-primary-soft: {tokens["primary_soft"]};
+        --hr-primary-text: {tokens["primary_text"]};
+        --hr-on-primary: {tokens["on_primary"]};
+        --hr-on-primary-hover: {tokens["on_primary_hover"]};
+        --hr-primary-rgb: {tokens["primary_rgb"]};
+        --hr-border: {tokens["border"]};
+        --hr-success: {tokens["success"]};
+        --hr-warning: {tokens["warning"]};
+        --hr-danger: {tokens["danger"]};
+        --hr-shadow: {tokens["shadow"]};
+    }}
+
+    /* =========================================================
+       APPLICATION BACKGROUND AND DEFAULT TEXT
+    ========================================================= */
+    html,
+    body,
+    [data-testid="stAppViewContainer"],
+    [data-testid="stMain"] {{
+        background: var(--hr-bg) !important;
+        color: var(--hr-text-primary) !important;
+    }}
+
+    [data-testid="stHeader"] {{
+        background: transparent !important;
+    }}
+
+    /* Headings and normal markdown must follow the current theme. */
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6,
+    [data-testid="stMarkdownContainer"] p,
+    [data-testid="stCaptionContainer"] {{
+        color: var(--hr-text-primary);
+    }}
+
+    /* =========================================================
+       PERMANENT SIDEBAR
+    ========================================================= */
+    section[data-testid="stSidebar"] {{
+        position: fixed !important;
+        inset: 0 auto 0 0 !important;
+
+        width: 285px !important;
+        min-width: 285px !important;
+        max-width: 285px !important;
+        height: 100vh !important;
+
+        margin-left: 0 !important;
+        transform: translateX(0) !important;
+        visibility: visible !important;
+
+        background: var(--hr-surface) !important;
+        border-right: 1px solid var(--hr-border) !important;
+
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+
+        z-index: 999 !important;
+        transition: none !important;
+    }}
+
+    section[data-testid="stSidebar"][aria-expanded="false"],
+    section[data-testid="stSidebar"][aria-expanded="true"] {{
+        left: 0 !important;
+        margin-left: 0 !important;
+        transform: translateX(0) !important;
+
+        width: 285px !important;
+        min-width: 285px !important;
+        max-width: 285px !important;
+    }}
+
+    section[data-testid="stSidebar"] > div,
+    [data-testid="stSidebarContent"] {{
+        width: 285px !important;
+        min-width: 285px !important;
+        max-width: 285px !important;
+    }}
+
+    /* Hide collapse/open controls across supported Streamlit versions. */
+    [data-testid="stSidebarCollapseButton"],
+    [data-testid="stSidebarCollapsedControl"],
+    [data-testid="collapsedControl"],
+    [data-testid="stSidebarHeader"] button,
+    button[data-testid="stBaseButton-headerNoPadding"],
+    button[kind="header"],
+    button[aria-label="Close sidebar"],
+    button[aria-label="Open sidebar"],
+    button[title="Close sidebar"],
+    button[title="Open sidebar"] {{
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+
+        width: 0 !important;
+        min-width: 0 !important;
+        max-width: 0 !important;
+        height: 0 !important;
+        min-height: 0 !important;
+
+        padding: 0 !important;
+        margin: 0 !important;
+        pointer-events: none !important;
+    }}
+
+    /* Keep the main application beside the fixed sidebar. */
+    [data-testid="stAppViewContainer"] > .main,
+    [data-testid="stMain"] {{
+        margin-left: 285px !important;
+        width: calc(100% - 285px) !important;
+        max-width: calc(100% - 285px) !important;
+    }}
+
+    .block-container {{
+        max-width: 1500px;
+        padding: 1.2rem 2rem 2rem;
+    }}
+
+    /* =========================================================
+       FORM AND INPUT CONTRAST
+       These rules fix invisible labels in light mode.
+    ========================================================= */
+
+    /* Streamlit widget labels, including text-input labels. */
+    [data-testid="stWidgetLabel"],
+    [data-testid="stWidgetLabel"] p,
+    [data-testid="stTextInput"] label,
+    [data-testid="stTextInput"] label p,
+    [data-testid="stSelectbox"] label,
+    [data-testid="stSelectbox"] label p,
+    [data-testid="stTextArea"] label,
+    [data-testid="stTextArea"] label p,
+    [data-testid="stNumberInput"] label,
+    [data-testid="stNumberInput"] label p {{
+        color: var(--hr-text-primary) !important;
+        opacity: 1 !important;
+        font-weight: 600 !important;
+    }}
+
+    /*
+       Text, password, number, select, and textarea surfaces.
+
+       Streamlit versions may use either data-baseweb="input" or
+       data-baseweb="base-input". Both are targeted so the light theme
+       cannot retain Streamlit's dark default input surface.
+    */
+    [data-testid="stTextInput"] div[data-baseweb="input"],
+    [data-testid="stTextInput"] div[data-baseweb="base-input"],
+    [data-testid="stNumberInput"] div[data-baseweb="input"],
+    [data-testid="stNumberInput"] div[data-baseweb="base-input"],
+    [data-testid="stSelectbox"] div[data-baseweb="select"] > div,
+    [data-testid="stTextArea"] div[data-baseweb="textarea"],
+    [data-testid="stTextArea"] textarea {{
+        color: var(--hr-text-primary) !important;
+        background-color: var(--hr-surface) !important;
+        background: var(--hr-surface) !important;
+        border-color: var(--hr-border) !important;
+        border-radius: 10px !important;
+        color-scheme: {"dark" if get_active_theme() == "dark" else "light"};
+    }}
+
+    /*
+       Force the editable value to use the active theme color.
+       The generic form selector is intentional because some Streamlit
+       releases place the input outside the expected data-baseweb wrapper.
+    */
+    [data-testid="stTextInput"] input,
+    [data-testid="stTextInput"] input[type="text"],
+    [data-testid="stTextInput"] input[type="password"],
+    [data-testid="stNumberInput"] input,
+    [data-testid="stTextArea"] textarea,
+    [data-testid="stForm"] input,
+    [data-testid="stForm"] textarea {{
+        color: var(--hr-text-primary) !important;
+        background-color: transparent !important;
+        background: transparent !important;
+        caret-color: var(--hr-primary-text) !important;
+        -webkit-text-fill-color: var(--hr-text-primary) !important;
+        opacity: 1 !important;
+    }}
+
+    /* Browser autofill can otherwise restore a dark background or text. */
+    [data-testid="stTextInput"] input:-webkit-autofill,
+    [data-testid="stTextInput"] input:-webkit-autofill:hover,
+    [data-testid="stTextInput"] input:-webkit-autofill:focus,
+    [data-testid="stForm"] input:-webkit-autofill {{
+        -webkit-text-fill-color: var(--hr-text-primary) !important;
+        -webkit-box-shadow: 0 0 0 1000px var(--hr-surface) inset !important;
+        box-shadow: 0 0 0 1000px var(--hr-surface) inset !important;
+        caret-color: var(--hr-primary-text) !important;
+    }}
+
+    [data-testid="stTextInput"] input::placeholder,
+    [data-testid="stNumberInput"] input::placeholder,
+    [data-testid="stTextArea"] textarea::placeholder,
+    [data-testid="stForm"] input::placeholder {{
+        color: var(--hr-text-secondary) !important;
+        opacity: 0.75 !important;
+        -webkit-text-fill-color: var(--hr-text-secondary) !important;
+    }}
+
+    /* Password visibility and help icons must be visible in both modes. */
+    [data-testid="stTextInput"] button,
+    [data-testid="stTooltipIcon"],
+    [data-testid="stTooltipIcon"] svg,
+    [data-baseweb="input"] svg {{
+        color: var(--hr-text-secondary) !important;
+        fill: currentColor !important;
+    }}
+
+    /* Focus state uses the shared primary color instead of default red. */
+    [data-testid="stTextInput"] div[data-baseweb="input"]:focus-within,
+    [data-testid="stNumberInput"] div[data-baseweb="input"]:focus-within,
+    [data-testid="stTextArea"] textarea:focus,
+    [data-testid="stSelectbox"] div[data-baseweb="select"] > div:focus-within {{
+        border-color: var(--hr-primary-text) !important;
+        box-shadow: 0 0 0 1px var(--hr-primary) !important;
+    }}
+
+    /* Give Streamlit forms a theme-aware card surface. */
+    [data-testid="stForm"] {{
+        color: var(--hr-text-primary) !important;
+        background: var(--hr-surface) !important;
+        border: 1px solid var(--hr-border) !important;
+        border-radius: 14px !important;
+        box-shadow: var(--hr-shadow) !important;
+    }}
+
+    /* =========================================================
+       ALERTS
+       Prevent pale warning text from disappearing in light mode.
+    ========================================================= */
+    [data-testid="stAlert"],
+    [data-testid="stAlert"] *,
+    [data-testid="stNotification"],
+    [data-testid="stNotification"] * {{
+        color: var(--hr-text-primary) !important;
+    }}
+
+    /* =========================================================
+       SHARED HR COMPONENTS
+    ========================================================= */
+    .hr-topbar {{
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+
+        margin-bottom: 20px;
+        padding: 16px 20px;
+
+        background: var(--hr-surface);
+        border: 1px solid var(--hr-border);
+        border-radius: 18px;
+        box-shadow: var(--hr-shadow);
+    }}
+
+    .hr-card {{
+        min-height: 112px;
+        padding: 18px;
+
+        background: var(--hr-surface);
+        border: 1px solid var(--hr-border);
+        border-radius: 14px;
+        box-shadow: var(--hr-shadow);
+    }}
+
+    .hr-placeholder {{
+        padding: 34px;
+
+        color: var(--hr-text-secondary);
+        text-align: center;
+
+        background: var(--hr-surface);
+        border: 1px dashed var(--hr-border);
+        border-radius: 18px;
+        box-shadow: var(--hr-shadow);
+    }}
+
+    .hr-brand {{
+        color: var(--hr-primary-text);
+        font-size: 1.25rem;
+        font-weight: 750;
+    }}
+
+    .hr-card-title,
+    .hr-title {{
+        margin-bottom: 8px;
+        color: var(--hr-text-primary);
+        font-weight: 700;
+    }}
+
+    .hr-card-text,
+    .hr-muted {{
+        color: var(--hr-text-secondary);
+    }}
+
+    /* =========================================================
+       BUTTONS
+    ========================================================= */
+
+    /* Standard secondary buttons use a soft accent hover. */
+    div.stButton > button {{
+        color: var(--hr-text-primary);
+        background: var(--hr-surface);
+        border: 1px solid var(--hr-border);
+        border-radius: 12px;
+        box-shadow: none;
+        transition:
+            color 0.16s ease,
+            background-color 0.16s ease,
+            border-color 0.16s ease,
+            box-shadow 0.16s ease;
+    }}
+
+    div.stButton > button:not(:disabled):hover {{
+        color: var(--hr-primary-text) !important;
+        background: var(--hr-primary-soft) !important;
+        border-color: var(--hr-primary-text) !important;
+        box-shadow: 0 0 0 2px var(--hr-primary-soft) !important;
+    }}
+
+    div.stButton > button:not(:disabled):hover * {{
+        color: var(--hr-primary-text) !important;
+        -webkit-text-fill-color: var(--hr-primary-text) !important;
+    }}
+
+    div.stButton > button:not(:disabled):active {{
+        color: var(--hr-primary-text) !important;
+        background: var(--hr-surface-secondary) !important;
+        border-color: var(--hr-primary-text) !important;
+        box-shadow: none !important;
+    }}
+
+    div.stButton > button:disabled {{
+        cursor: not-allowed;
+        opacity: 0.58;
+    }}
+
+    /* Primary and form-submit buttons use the project accent color. */
+    button[kind="primary"],
+    [data-testid="stFormSubmitButton"] button {{
+        color: #FFFFFF !important;
+        background: var(--hr-primary) !important;
+        border-color: var(--hr-primary-text) !important;
+        border-radius: 10px !important;
+        box-shadow: none !important;
+        transition:
+            background-color 0.16s ease,
+            border-color 0.16s ease,
+            box-shadow 0.16s ease;
+    }}
+
+    /* Streamlit places button text inside nested paragraph/span elements. */
+    button[kind="primary"] *,
+    [data-testid="stFormSubmitButton"] button * {{
+        color: #FFFFFF !important;
+        -webkit-text-fill-color: #FFFFFF !important;
+    }}
+
+    button[kind="primary"]:not(:disabled):hover,
+    [data-testid="stFormSubmitButton"] button:not(:disabled):hover {{
+        color: #FFFFFF !important;
+        background: var(--hr-primary-hover) !important;
+        border-color: var(--hr-primary-hover) !important;
+        box-shadow: 0 0 0 3px var(--hr-primary-soft) !important;
+    }}
+
+    button[kind="primary"]:not(:disabled):hover *,
+    [data-testid="stFormSubmitButton"] button:not(:disabled):hover * {{
+        color: #FFFFFF !important;
+        -webkit-text-fill-color: #FFFFFF !important;
+    }}
+
+    button[kind="primary"]:not(:disabled):active,
+    [data-testid="stFormSubmitButton"] button:not(:disabled):active {{
+        background: var(--hr-primary) !important;
+        border-color: var(--hr-primary-text) !important;
+        box-shadow: none !important;
+    }}
+
+    /* =========================================================
+       TABS
+    ========================================================= */
+
+    [data-testid="stTabs"] [data-baseweb="tab-list"] {{
+        gap: 6px;
+        background: transparent;
+    }}
+
+    [data-testid="stTabs"] button[role="tab"] {{
+        min-height: 42px;
+        padding: 8px 14px;
+        color: var(--hr-text-secondary) !important;
+        background: transparent !important;
+        border-radius: 10px 10px 0 0;
+        transition:
+            color 0.16s ease,
+            background-color 0.16s ease;
+    }}
+
+    [data-testid="stTabs"] button[role="tab"] * {{
+        color: inherit !important;
+        -webkit-text-fill-color: currentColor !important;
+    }}
+
+    [data-testid="stTabs"] button[role="tab"]:hover {{
+        color: var(--hr-primary-text) !important;
+        background: var(--hr-primary-soft) !important;
+    }}
+
+    [data-testid="stTabs"] button[role="tab"][aria-selected="true"] {{
+        color: var(--hr-primary-text) !important;
+        background: var(--hr-primary-soft) !important;
+        font-weight: 700;
+    }}
+
+    [data-testid="stTabs"] [data-baseweb="tab-highlight"] {{
+        background-color: var(--hr-primary-text) !important;
+    }}
+
+    /* =========================================================
+       EXPANDERS — LIGHT SURFACE CONTRAST v8.4.1
+       Expander headers are actions, not dark input controls.
+    ========================================================= */
+
+    [data-testid="stExpander"] {{
+        color: var(--hr-text-primary) !important;
+        background: #FFFFFF !important;
+        background-color: #FFFFFF !important;
+        border: 1px solid #D8DEEA !important;
+        border-radius: 12px !important;
+        overflow: hidden !important;
+        box-shadow: none !important;
+    }}
+
+    [data-testid="stExpander"] details {{
+        color: var(--hr-text-primary) !important;
+        background: #FFFFFF !important;
+        background-color: #FFFFFF !important;
+    }}
+
+    [data-testid="stExpander"] details > summary {{
+        min-height: 46px !important;
+        padding: 10px 14px !important;
+        color: #10172A !important;
+        -webkit-text-fill-color: #10172A !important;
+        background: #FFFFFF !important;
+        background-color: #FFFFFF !important;
+        border-radius: 11px !important;
+        cursor: pointer !important;
+        transition:
+            color 0.16s ease,
+            background-color 0.16s ease,
+            border-color 0.16s ease,
+            box-shadow 0.16s ease !important;
+    }}
+
+    /* Force every nested label/span to remain visible before hover. */
+    [data-testid="stExpander"] details > summary *,
+    [data-testid="stExpander"] details > summary p,
+    [data-testid="stExpander"] details > summary span {{
+        color: #10172A !important;
+        -webkit-text-fill-color: #10172A !important;
+        opacity: 1 !important;
+        text-shadow: none !important;
+    }}
+
+    [data-testid="stExpander"] details > summary svg {{
+        color: #68738C !important;
+        fill: currentColor !important;
+        -webkit-text-fill-color: currentColor !important;
+    }}
+
+    [data-testid="stExpander"] details > summary:hover,
+    [data-testid="stExpander"] details > summary:focus-visible {{
+        color: var(--hr-primary-text) !important;
+        -webkit-text-fill-color: var(--hr-primary-text) !important;
+        background: var(--hr-primary-soft) !important;
+        background-color: var(--hr-primary-soft) !important;
+        box-shadow: inset 0 0 0 1px rgba(var(--hr-primary-rgb), 0.18) !important;
+        outline: none !important;
+    }}
+
+    [data-testid="stExpander"] details > summary:hover *,
+    [data-testid="stExpander"] details > summary:focus-visible * {{
+        color: var(--hr-primary-text) !important;
+        -webkit-text-fill-color: var(--hr-primary-text) !important;
+    }}
+
+    [data-testid="stExpander"] details > summary:hover svg,
+    [data-testid="stExpander"] details > summary:focus-visible svg {{
+        color: var(--hr-primary-text) !important;
+        fill: currentColor !important;
+    }}
+
+    /* Keep the expanded header readable even when the pointer leaves. */
+    [data-testid="stExpander"] details[open] > summary {{
+        color: var(--hr-primary-text) !important;
+        -webkit-text-fill-color: var(--hr-primary-text) !important;
+        background: var(--hr-primary-soft) !important;
+        background-color: var(--hr-primary-soft) !important;
+        border-radius: 11px 11px 0 0 !important;
+        border-bottom: 1px solid #D8DEEA !important;
+    }}
+
+    [data-testid="stExpander"] details[open] > summary *,
+    [data-testid="stExpander"] details[open] > summary p,
+    [data-testid="stExpander"] details[open] > summary span,
+    [data-testid="stExpander"] details[open] > summary svg {{
+        color: var(--hr-primary-text) !important;
+        -webkit-text-fill-color: var(--hr-primary-text) !important;
+    }}
+
+    [data-testid="stExpander"] details > div {{
+        color: var(--hr-text-primary) !important;
+        background: #FFFFFF !important;
+        background-color: #FFFFFF !important;
+    }}
+
+    div[data-testid="stChatInput"] {{
+        background: var(--hr-surface);
+        border-radius: 16px;
+    }}
+
+    /* =========================================================
+       RESPONSIVE WIDTH
+    ========================================================= */
+    @media (max-width: 900px) {{
+        section[data-testid="stSidebar"],
+        section[data-testid="stSidebar"] > div,
+        [data-testid="stSidebarContent"] {{
+            width: 250px !important;
+            min-width: 250px !important;
+            max-width: 250px !important;
+        }}
+
+        [data-testid="stAppViewContainer"] > .main,
+        [data-testid="stMain"] {{
+            margin-left: 250px !important;
+            width: calc(100% - 250px) !important;
+            max-width: calc(100% - 250px) !important;
+        }}
+    }}
+
+
+
+
+/* =========================================================
+   LIGHT PAGE + DARK FORM CONTROLS — v8.3.12
+   Dark controls use white values while the page remains Light Mode.
+========================================================= */
+
+[data-testid="stTextInput"] div[data-baseweb="input"],
+[data-testid="stTextInput"] div[data-baseweb="base-input"],
+[data-testid="stNumberInput"] div[data-baseweb="input"],
+[data-testid="stNumberInput"] div[data-baseweb="base-input"],
+[data-testid="stDateInput"] div[data-baseweb="input"],
+[data-testid="stDateInput"] div[data-baseweb="base-input"],
+[data-testid="stTimeInput"] div[data-baseweb="input"],
+[data-testid="stTimeInput"] div[data-baseweb="base-input"],
+[data-testid="stTextArea"] div[data-baseweb="textarea"],
+[data-testid="stTextArea"] textarea,
+[data-testid="stSelectbox"] div[data-baseweb="select"] > div,
+[data-testid="stMultiSelect"] div[data-baseweb="select"] > div,
+div[data-baseweb="select"],
+div[data-baseweb="select"] > div {{
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+    background: #252630 !important;
+    background-color: #252630 !important;
+    border-color: #3A3D4A !important;
+    border-radius: 10px !important;
+    color-scheme: dark !important;
+    transition:
+        background-color 0.16s ease,
+        border-color 0.16s ease,
+        box-shadow 0.16s ease;
+}}
+
+[data-testid="stTextInput"] div[data-baseweb="input"]:hover,
+[data-testid="stTextInput"] div[data-baseweb="base-input"]:hover,
+[data-testid="stNumberInput"] div[data-baseweb="input"]:hover,
+[data-testid="stNumberInput"] div[data-baseweb="base-input"]:hover,
+[data-testid="stDateInput"] div[data-baseweb="input"]:hover,
+[data-testid="stDateInput"] div[data-baseweb="base-input"]:hover,
+[data-testid="stTimeInput"] div[data-baseweb="input"]:hover,
+[data-testid="stTimeInput"] div[data-baseweb="base-input"]:hover,
+[data-testid="stTextArea"] div[data-baseweb="textarea"]:hover,
+[data-testid="stSelectbox"] div[data-baseweb="select"] > div:hover,
+[data-testid="stMultiSelect"] div[data-baseweb="select"] > div:hover {{
+    background: #2D2F3A !important;
+    background-color: #2D2F3A !important;
+    border-color: var(--hr-primary) !important;
+}}
+
+[data-testid="stTextInput"] div[data-baseweb="input"]:focus-within,
+[data-testid="stTextInput"] div[data-baseweb="base-input"]:focus-within,
+[data-testid="stNumberInput"] div[data-baseweb="input"]:focus-within,
+[data-testid="stNumberInput"] div[data-baseweb="base-input"]:focus-within,
+[data-testid="stDateInput"] div[data-baseweb="input"]:focus-within,
+[data-testid="stDateInput"] div[data-baseweb="base-input"]:focus-within,
+[data-testid="stTimeInput"] div[data-baseweb="input"]:focus-within,
+[data-testid="stTimeInput"] div[data-baseweb="base-input"]:focus-within,
+[data-testid="stTextArea"] div[data-baseweb="textarea"]:focus-within,
+[data-testid="stSelectbox"] div[data-baseweb="select"] > div:focus-within,
+[data-testid="stMultiSelect"] div[data-baseweb="select"] > div:focus-within {{
+    background: #252630 !important;
+    background-color: #252630 !important;
+    border-color: var(--hr-primary-text) !important;
+    box-shadow: 0 0 0 1px var(--hr-primary) !important;
+}}
+
+[data-testid="stAppViewContainer"]
+input:not([type="checkbox"]):not([type="radio"]),
+[data-testid="stAppViewContainer"] textarea,
+[data-testid="stTextInput"] input,
+[data-testid="stNumberInput"] input,
+[data-testid="stDateInput"] input,
+[data-testid="stTimeInput"] input,
+[data-testid="stTextArea"] textarea,
+div[data-baseweb="select"] input {{
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+    caret-color: #FFFFFF !important;
+    background: transparent !important;
+    background-color: transparent !important;
+    color-scheme: dark !important;
+    opacity: 1 !important;
+    text-shadow: none !important;
+    font-weight: 500 !important;
+}}
+
+[data-testid="stTextInput"] input::placeholder,
+[data-testid="stNumberInput"] input::placeholder,
+[data-testid="stDateInput"] input::placeholder,
+[data-testid="stTimeInput"] input::placeholder,
+[data-testid="stTextArea"] textarea::placeholder,
+[data-testid="stSelectbox"] input::placeholder,
+[data-testid="stMultiSelect"] input::placeholder,
+div[data-baseweb="select"] input::placeholder {{
+    color: #B9BED0 !important;
+    -webkit-text-fill-color: #B9BED0 !important;
+    opacity: 0.86 !important;
+}}
+
+[data-testid="stTextInput"] input::selection,
+[data-testid="stNumberInput"] input::selection,
+[data-testid="stDateInput"] input::selection,
+[data-testid="stTimeInput"] input::selection,
+[data-testid="stTextArea"] textarea::selection {{
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+    background: var(--hr-primary) !important;
+}}
+
+[data-testid="stTextInput"] input:-webkit-autofill,
+[data-testid="stTextInput"] input:-webkit-autofill:hover,
+[data-testid="stTextInput"] input:-webkit-autofill:focus,
+[data-testid="stDateInput"] input:-webkit-autofill,
+[data-testid="stTimeInput"] input:-webkit-autofill {{
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+    caret-color: #FFFFFF !important;
+    box-shadow: 0 0 0 1000px #252630 inset !important;
+    -webkit-box-shadow: 0 0 0 1000px #252630 inset !important;
+    transition: background-color 9999s ease-out 0s !important;
+}}
+
+div[data-baseweb="select"] div,
+div[data-baseweb="select"] span,
+div[data-baseweb="select"] p,
+div[data-baseweb="select"] label,
+div[data-baseweb="select"] input,
+div[data-baseweb="select"] [role="combobox"],
+div[data-baseweb="select"] [aria-selected],
+div[data-baseweb="select"] [data-baseweb="tag"] {{
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+    opacity: 1 !important;
+    text-shadow: none !important;
+}}
+
+[data-testid="stTextInput"] button,
+[data-testid="stTextInput"] button svg,
+[data-testid="stDateInput"] button,
+[data-testid="stDateInput"] button svg,
+[data-testid="stTimeInput"] button,
+[data-testid="stTimeInput"] button svg,
+div[data-baseweb="select"] svg {{
+    color: #C7CCDA !important;
+    fill: currentColor !important;
+    -webkit-text-fill-color: currentColor !important;
+}}
+
+[data-testid="stTextInput"] input:disabled,
+[data-testid="stNumberInput"] input:disabled,
+[data-testid="stDateInput"] input:disabled,
+[data-testid="stTimeInput"] input:disabled,
+[data-testid="stTextArea"] textarea:disabled {{
+    color: #D6D9E3 !important;
+    -webkit-text-fill-color: #D6D9E3 !important;
+    opacity: 1 !important;
+}}
+
+[data-baseweb="popover"] [role="listbox"],
+[data-baseweb="popover"] [role="menu"],
+[data-baseweb="menu"],
+[data-baseweb="calendar"] {{
+    color: #FFFFFF !important;
+    background: #252630 !important;
+    background-color: #252630 !important;
+    border: 1px solid #3A3D4A !important;
+    color-scheme: dark !important;
+    box-shadow: 0 12px 32px rgba(24, 36, 74, 0.22) !important;
+}}
+
+[data-baseweb="popover"] [role="listbox"] *,
+[data-baseweb="popover"] [role="menu"] *,
+[data-baseweb="menu"] *,
+[data-baseweb="calendar"] * {{
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+}}
+
+[data-baseweb="popover"] [role="option"]:hover,
+[data-baseweb="menu"] [role="option"]:hover,
+[data-baseweb="popover"] [role="option"][aria-selected="true"],
+[data-baseweb="menu"] [role="option"][aria-selected="true"] {{
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+    background: var(--hr-primary) !important;
+    background-color: var(--hr-primary) !important;
+}}
+
+/* Labels are outside dark controls, so they remain dark on the light page. */
+[data-testid="stWidgetLabel"],
+[data-testid="stWidgetLabel"] p,
+[data-testid="stTextInput"] label,
+[data-testid="stTextInput"] label p,
+[data-testid="stNumberInput"] label,
+[data-testid="stNumberInput"] label p,
+[data-testid="stDateInput"] label,
+[data-testid="stDateInput"] label p,
+[data-testid="stTimeInput"] label,
+[data-testid="stTimeInput"] label p,
+[data-testid="stTextArea"] label,
+[data-testid="stTextArea"] label p,
+[data-testid="stSelectbox"] label,
+[data-testid="stSelectbox"] label p,
+[data-testid="stMultiSelect"] label,
+[data-testid="stMultiSelect"] label p {{
+    color: var(--hr-text-primary) !important;
+    -webkit-text-fill-color: var(--hr-text-primary) !important;
+    opacity: 1 !important;
+}}
+
+
+/* =========================================================
+   NATIVE STREAMLIT CONTROL HOVER — v8.3.13
+   File uploader and checkbox controls do not inherit normal
+   st.button/input hover rules, so they are scoped separately.
+========================================================= */
+
+/* File uploader dropzone */
+[data-testid="stFileUploaderDropzone"] {{
+    color: #FFFFFF !important;
+    background: #252630 !important;
+    background-color: #252630 !important;
+    border: 1px dashed #3A3D4A !important;
+    border-radius: 10px !important;
+    transition:
+        background-color 0.16s ease,
+        border-color 0.16s ease,
+        box-shadow 0.16s ease !important;
+}}
+
+[data-testid="stFileUploaderDropzone"]:hover,
+[data-testid="stFileUploaderDropzone"]:focus-within {{
+    background: #2D2F3A !important;
+    background-color: #2D2F3A !important;
+    border-color: var(--hr-primary) !important;
+    box-shadow: 0 0 0 2px rgba(var(--hr-primary-rgb), 0.18) !important;
+}}
+
+/* Uploader text, helper text, and icons */
+[data-testid="stFileUploaderDropzone"] p,
+[data-testid="stFileUploaderDropzone"] span,
+[data-testid="stFileUploaderDropzone"] small,
+[data-testid="stFileUploaderDropzone"] div {{
+    color: #D6D9E3 !important;
+    -webkit-text-fill-color: #D6D9E3 !important;
+}}
+
+[data-testid="stFileUploaderDropzone"] svg {{
+    color: #C7CCDA !important;
+    fill: currentColor !important;
+}}
+
+/* Streamlit Upload/Browse button inside the dropzone */
+[data-testid="stFileUploaderDropzone"] button,
+[data-testid="stFileUploaderDropzone"] button[kind="secondary"],
+[data-testid="stFileUploaderDropzone"] button[data-testid] {{
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+    background: #343644 !important;
+    background-color: #343644 !important;
+    border: 1px solid #565A6D !important;
+    border-radius: 8px !important;
+    box-shadow: none !important;
+    transition:
+        color 0.16s ease,
+        background-color 0.16s ease,
+        border-color 0.16s ease,
+        box-shadow 0.16s ease !important;
+}}
+
+[data-testid="stFileUploaderDropzone"] button *,
+[data-testid="stFileUploaderDropzone"] button p,
+[data-testid="stFileUploaderDropzone"] button span {{
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+}}
+
+[data-testid="stFileUploaderDropzone"] button:hover,
+[data-testid="stFileUploaderDropzone"] button:focus-visible {{
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+    background: var(--hr-primary) !important;
+    background-color: var(--hr-primary) !important;
+    border-color: var(--hr-primary) !important;
+    box-shadow: 0 0 0 3px rgba(var(--hr-primary-rgb), 0.22) !important;
+}}
+
+[data-testid="stFileUploaderDropzone"] button:hover *,
+[data-testid="stFileUploaderDropzone"] button:focus-visible * {{
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+}}
+
+[data-testid="stFileUploaderDropzone"] button:active {{
+    background: var(--hr-primary-hover) !important;
+    background-color: var(--hr-primary-hover) !important;
+    border-color: var(--hr-primary-hover) !important;
+    box-shadow: none !important;
+}}
+
+/* Uploaded file rows */
+[data-testid="stFileUploaderFile"],
+[data-testid="stFileUploaderFileData"] {{
+    color: #FFFFFF !important;
+    background: #252630 !important;
+    background-color: #252630 !important;
+    border: 1px solid #3A3D4A !important;
+    border-radius: 8px !important;
+    transition:
+        background-color 0.16s ease,
+        border-color 0.16s ease !important;
+}}
+
+[data-testid="stFileUploaderFile"]:hover,
+[data-testid="stFileUploaderFileData"]:hover {{
+    background: #2D2F3A !important;
+    background-color: #2D2F3A !important;
+    border-color: var(--hr-primary) !important;
+}}
+
+[data-testid="stFileUploaderFile"] *,
+[data-testid="stFileUploaderFileData"] * {{
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+}}
+
+/* Remove-file icon */
+[data-testid="stFileUploaderDeleteBtn"] button,
+[data-testid="stFileUploaderDeleteBtn"] button * {{
+    color: #C7CCDA !important;
+    -webkit-text-fill-color: #C7CCDA !important;
+}}
+
+[data-testid="stFileUploaderDeleteBtn"] button:hover,
+[data-testid="stFileUploaderDeleteBtn"] button:hover * {{
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+    background: #E05252 !important;
+    background-color: #E05252 !important;
+    border-color: #E05252 !important;
+}}
+
+/* Checkbox hover: label is on the light form surface */
+[data-testid="stCheckbox"] label {{
+    padding: 5px 8px !important;
+    border-radius: 8px !important;
+    transition:
+        color 0.16s ease,
+        background-color 0.16s ease !important;
+}}
+
+[data-testid="stCheckbox"] label:hover {{
+    color: var(--hr-primary-text) !important;
+    background: var(--hr-primary-soft) !important;
+    background-color: var(--hr-primary-soft) !important;
+}}
+
+[data-testid="stCheckbox"] label:hover p,
+[data-testid="stCheckbox"] label:hover span {{
+    color: var(--hr-primary-text) !important;
+    -webkit-text-fill-color: var(--hr-primary-text) !important;
+}}
+
+/* Checkbox square/indicator */
+[data-testid="stCheckbox"] [role="checkbox"] {{
+    border-color: #68738C !important;
+    transition:
+        background-color 0.16s ease,
+        border-color 0.16s ease,
+        box-shadow 0.16s ease !important;
+}}
+
+[data-testid="stCheckbox"] label:hover [role="checkbox"] {{
+    border-color: var(--hr-primary-text) !important;
+    box-shadow: 0 0 0 2px var(--hr-primary-soft) !important;
+}}
+
+[data-testid="stCheckbox"] [role="checkbox"][aria-checked="true"] {{
+    background: var(--hr-primary) !important;
+    background-color: var(--hr-primary-text) !important;
+    border-color: var(--hr-primary-text) !important;
+}}
+
+[data-testid="stCheckbox"]
+[role="checkbox"][aria-checked="true"] svg {{
+    color: #FFFFFF !important;
+    fill: currentColor !important;
+}}
+
+/* =========================================================
+   TOOLTIP CONTRAST — v8.3.14
+   Help text appears on a dark floating surface, so every nested
+   text node must remain white regardless of Light Mode page rules.
+========================================================= */
+
+[role="tooltip"],
+[data-baseweb="tooltip"],
+[data-testid="stTooltipContent"] {{
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+    background: #252630 !important;
+    background-color: #252630 !important;
+    border: 1px solid #3A3D4A !important;
+    border-radius: 8px !important;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28) !important;
+    color-scheme: dark !important;
+}}
+
+[role="tooltip"] > div,
+[data-baseweb="tooltip"] > div,
+[data-testid="stTooltipContent"] > div {{
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+    background: #252630 !important;
+    background-color: #252630 !important;
+}}
+
+[role="tooltip"] *,
+[data-baseweb="tooltip"] *,
+[data-testid="stTooltipContent"] * {{
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+    opacity: 1 !important;
+    text-shadow: none !important;
+}}
+
+[role="tooltip"] svg,
+[data-baseweb="tooltip"] svg,
+[data-testid="stTooltipContent"] svg {{
+    color: #D6D9E3 !important;
+    fill: currentColor !important;
+    -webkit-text-fill-color: currentColor !important;
+}}
+
+/* Help icon remains visible on the light page before hover. */
+[data-testid="stTooltipIcon"],
+[data-testid="stTooltipIcon"] button,
+[data-testid="stTooltipIcon"] svg {{
+    color: #68738C !important;
+    fill: currentColor !important;
+    transition:
+        color 0.16s ease,
+        background-color 0.16s ease !important;
+}}
+
+[data-testid="stTooltipIcon"]:hover,
+[data-testid="stTooltipIcon"] button:hover {{
+    color: var(--hr-primary-text) !important;
+    background: var(--hr-primary-soft) !important;
+    border-radius: 50% !important;
+}}
+
+[data-testid="stTooltipIcon"]:hover svg,
+[data-testid="stTooltipIcon"] button:hover svg {{
+    color: var(--hr-primary-text) !important;
+    fill: currentColor !important;
+}}
+
+/* =========================================================
+   DOWNLOAD ACTION CONTRAST — v8.3.15
+   Download controls render as anchors in some Streamlit versions
+   and buttons in others, so both structures are covered.
+========================================================= */
+
+[data-testid="stDownloadButton"] {{
+    background: transparent !important;
+}}
+
+[data-testid="stDownloadButton"] > a,
+[data-testid="stDownloadButton"] > button,
+[data-testid="stDownloadButton"]
+a[data-testid^="stBaseButton"],
+[data-testid="stDownloadButton"]
+button[data-testid^="stBaseButton"] {{
+    width: 100% !important;
+    min-height: 40px !important;
+    color: #10172A !important;
+    -webkit-text-fill-color: #10172A !important;
+    background: #FFFFFF !important;
+    background-color: #FFFFFF !important;
+    border: 1px solid #D8DEEA !important;
+    border-radius: 10px !important;
+    box-shadow: none !important;
+    text-decoration: none !important;
+    transition:
+        color 0.16s ease,
+        background-color 0.16s ease,
+        border-color 0.16s ease,
+        box-shadow 0.16s ease !important;
+}}
+
+[data-testid="stDownloadButton"] > a *,
+[data-testid="stDownloadButton"] > button *,
+[data-testid="stDownloadButton"]
+a[data-testid^="stBaseButton"] *,
+[data-testid="stDownloadButton"]
+button[data-testid^="stBaseButton"] * {{
+    color: #10172A !important;
+    -webkit-text-fill-color: #10172A !important;
+}}
+
+[data-testid="stDownloadButton"] svg {{
+    color: #68738C !important;
+    fill: currentColor !important;
+}}
+
+[data-testid="stDownloadButton"] > a:hover,
+[data-testid="stDownloadButton"] > button:hover,
+[data-testid="stDownloadButton"] > a:focus-visible,
+[data-testid="stDownloadButton"] > button:focus-visible,
+[data-testid="stDownloadButton"]
+a[data-testid^="stBaseButton"]:hover,
+[data-testid="stDownloadButton"]
+button[data-testid^="stBaseButton"]:hover,
+[data-testid="stDownloadButton"]
+a[data-testid^="stBaseButton"]:focus-visible,
+[data-testid="stDownloadButton"]
+button[data-testid^="stBaseButton"]:focus-visible {{
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+    background: var(--hr-primary) !important;
+    background-color: var(--hr-primary) !important;
+    border-color: var(--hr-primary) !important;
+    box-shadow: 0 0 0 3px rgba(var(--hr-primary-rgb), 0.22) !important;
+    text-decoration: none !important;
+}}
+
+[data-testid="stDownloadButton"] > a:hover *,
+[data-testid="stDownloadButton"] > button:hover *,
+[data-testid="stDownloadButton"] > a:focus-visible *,
+[data-testid="stDownloadButton"] > button:focus-visible *,
+[data-testid="stDownloadButton"]
+a[data-testid^="stBaseButton"]:hover *,
+[data-testid="stDownloadButton"]
+button[data-testid^="stBaseButton"]:hover *,
+[data-testid="stDownloadButton"]
+a[data-testid^="stBaseButton"]:focus-visible *,
+[data-testid="stDownloadButton"]
+button[data-testid^="stBaseButton"]:focus-visible * {{
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+}}
+
+[data-testid="stDownloadButton"] > a:active,
+[data-testid="stDownloadButton"] > button:active,
+[data-testid="stDownloadButton"]
+a[data-testid^="stBaseButton"]:active,
+[data-testid="stDownloadButton"]
+button[data-testid^="stBaseButton"]:active {{
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+    background: var(--hr-primary-hover) !important;
+    background-color: var(--hr-primary-hover) !important;
+    border-color: var(--hr-primary-hover) !important;
+    box-shadow: none !important;
+}}
+
+[data-testid="stDownloadButton"] > a[aria-disabled="true"],
+[data-testid="stDownloadButton"] > button:disabled,
+[data-testid="stDownloadButton"]
+a[data-testid^="stBaseButton"][aria-disabled="true"],
+[data-testid="stDownloadButton"]
+button[data-testid^="stBaseButton"]:disabled {{
+    color: #8A93A8 !important;
+    -webkit-text-fill-color: #8A93A8 !important;
+    background: #EEF1F6 !important;
+    background-color: #EEF1F6 !important;
+    border-color: #E0E4EC !important;
+    box-shadow: none !important;
+    cursor: not-allowed !important;
+    opacity: 1 !important;
+}}
+
+[data-testid="stDownloadButton"] > a[aria-disabled="true"] *,
+[data-testid="stDownloadButton"] > button:disabled *,
+[data-testid="stDownloadButton"]
+a[data-testid^="stBaseButton"][aria-disabled="true"] *,
+[data-testid="stDownloadButton"]
+button[data-testid^="stBaseButton"]:disabled * {{
+    color: #8A93A8 !important;
+    -webkit-text-fill-color: #8A93A8 !important;
+}}
+
+/* =========================================================
+   TOAST CONTRAST — v8.4.2
+   Toasts are dark floating surfaces and must not inherit the
+   Light Mode page's dark body text.
+========================================================= */
+
+[data-testid="stToast"],
+[data-baseweb="toast"] {{
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+    background: #252630 !important;
+    background-color: #252630 !important;
+    border: 1px solid #3A3D4A !important;
+    border-radius: 10px !important;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.34) !important;
+    color-scheme: dark !important;
+    transition:
+        background-color 0.16s ease,
+        border-color 0.16s ease,
+        box-shadow 0.16s ease !important;
+}}
+
+[data-testid="stToast"]:hover,
+[data-baseweb="toast"]:hover {{
+    background: #2D2F3A !important;
+    background-color: #2D2F3A !important;
+    border-color: #565A6D !important;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.38) !important;
+}}
+
+[data-testid="stToast"] *,
+[data-baseweb="toast"] * {{
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+    opacity: 1 !important;
+    text-shadow: none !important;
+}}
+
+/* Success/status icon */
+[data-testid="stToast"] svg,
+[data-baseweb="toast"] svg {{
+    color: #31C77A !important;
+    fill: currentColor !important;
+    -webkit-text-fill-color: currentColor !important;
+}}
+
+/* Close button must stay readable but visually secondary. */
+[data-testid="stToast"] button,
+[data-baseweb="toast"] button {{
+    color: #C7CCDA !important;
+    -webkit-text-fill-color: #C7CCDA !important;
+    background: transparent !important;
+    background-color: transparent !important;
+    border-color: transparent !important;
+    border-radius: 7px !important;
+    box-shadow: none !important;
+}}
+
+[data-testid="stToast"] button *,
+[data-baseweb="toast"] button *,
+[data-testid="stToast"] button svg,
+[data-baseweb="toast"] button svg {{
+    color: #C7CCDA !important;
+    -webkit-text-fill-color: #C7CCDA !important;
+    fill: currentColor !important;
+}}
+
+[data-testid="stToast"] button:hover,
+[data-baseweb="toast"] button:hover {{
+    color: #FFFFFF !important;
+    background: #3A3D4A !important;
+    background-color: #3A3D4A !important;
+}}
+
+[data-testid="stToast"] button:hover *,
+[data-baseweb="toast"] button:hover * {{
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+}}
+
+/* =========================================================
+   POLICY TEXT READABILITY — v8.4.6
+   Compact line spacing while keeping long policy text readable.
+========================================================= */
+
+[data-testid="stTextArea"] textarea {{
+    line-height: 1.30 !important;
+    font-size: 0.90rem !important;
+    letter-spacing: 0 !important;
+    padding: 12px 14px !important;
+    tab-size: 4 !important;
+    white-space: pre-wrap !important;
+    overflow-wrap: anywhere !important;
+}}
+
+[data-testid="stTextArea"] label {{
+    margin-bottom: 4px !important;
+}}
+
+/* =========================================================
+   POLICY SECTION HEADING/CONTENT LAYOUT — v8.4.7
+   Separator → heading → content → next separator.
+========================================================= */
+
+.hr-policy-section-preview {{
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+    background: #252630 !important;
+    background-color: #252630 !important;
+    border: 1px solid #3A3D4A !important;
+    border-radius: 10px !important;
+    padding: 5px 14px 7px 14px !important;
+    margin: 4px 0 10px 0 !important;
+    font-family: inherit !important;
+    letter-spacing: 0 !important;
+    overflow: hidden !important;
+}}
+
+.hr-policy-preview-section {{
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+    border-top: 1px solid #666B7C !important;
+    padding: 8px 0 9px 0 !important;
+    margin: 0 !important;
+}}
+
+.hr-policy-preview-heading {{
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+    font-size: 0.90rem !important;
+    font-weight: 700 !important;
+    line-height: 1.24 !important;
+    margin: 0 0 4px 0 !important;
+    overflow-wrap: anywhere !important;
+    word-break: break-word !important;
+    opacity: 1 !important;
+    text-shadow: none !important;
+}}
+
+.hr-policy-preview-content {{
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+    font-size: 0.87rem !important;
+    font-weight: 500 !important;
+    line-height: 1.26 !important;
+    margin: 0 !important;
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+    word-break: break-word !important;
+    opacity: 1 !important;
+    text-shadow: none !important;
+}}
+
+.hr-policy-preview-heading *,
+.hr-policy-preview-content * {{
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+    opacity: 1 !important;
+    text-shadow: none !important;
+}}
+
+.hr-policy-preview-final-line {{
+    border-top: 1px solid #666B7C !important;
+    height: 1px !important;
+    margin: 0 !important;
+}}
+
+/* =========================================================
+   NOTIFICATION BELL — v8.5.0
+========================================================= */
+
+[data-testid="stPopover"] > button {{
+    min-height: 44px !important;
+    color: #10172A !important;
+    -webkit-text-fill-color: #10172A !important;
+    background: #FFFFFF !important;
+    border: 1px solid #D8DEEA !important;
+    border-radius: 12px !important;
+    font-weight: 700 !important;
+    box-shadow: var(--hr-shadow) !important;
+}}
+
+[data-testid="stPopover"] > button:hover,
+[data-testid="stPopover"] > button:focus-visible {{
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+    background: var(--hr-primary) !important;
+    border-color: var(--hr-primary-text) !important;
+}}
+
+[data-baseweb="popover"] {{
+    color: #10172A !important;
+    background: #FFFFFF !important;
+    background-color: #FFFFFF !important;
+}}
+
+/* =========================================================
+   COMPANY ACCENT CONTRAST — v8.5.1
+========================================================= */
+
+button[kind="primary"],
+button[kind="primary"] *,
+[data-testid="stFormSubmitButton"] button,
+[data-testid="stFormSubmitButton"] button *,
+section[data-testid="stSidebar"] button[kind="primary"],
+section[data-testid="stSidebar"] button[kind="primary"] *,
+[data-testid="stFileUploaderDropzone"] button:hover,
+[data-testid="stFileUploaderDropzone"] button:hover *,
+[data-testid="stFileUploaderDropzone"] button:focus-visible,
+[data-testid="stFileUploaderDropzone"] button:focus-visible *,
+[data-testid="stDownloadButton"] > a:hover,
+[data-testid="stDownloadButton"] > a:hover *,
+[data-testid="stDownloadButton"] > button:hover,
+[data-testid="stDownloadButton"] > button:hover *,
+[data-testid="stDownloadButton"] > a:focus-visible,
+[data-testid="stDownloadButton"] > a:focus-visible *,
+[data-testid="stDownloadButton"] > button:focus-visible,
+[data-testid="stDownloadButton"] > button:focus-visible *,
+[data-testid="stPopover"] > button:hover,
+[data-testid="stPopover"] > button:focus-visible,
+[data-baseweb="popover"] [role="option"][aria-selected="true"],
+[data-baseweb="menu"] [role="option"][aria-selected="true"] {{
+    color: var(--hr-on-primary) !important;
+    -webkit-text-fill-color: var(--hr-on-primary) !important;
+}}
+
+[data-testid="stCheckbox"]
+[role="checkbox"][aria-checked="true"] svg {{
+    color: var(--hr-on-primary) !important;
+    fill: currentColor !important;
+}}
+
+[data-testid="stColorPicker"] button {{
+    border-color: var(--hr-border) !important;
+    border-radius: 10px !important;
+}}
+
+[data-testid="stColorPicker"] button:hover,
+[data-testid="stColorPicker"] button:focus-visible {{
+    border-color: var(--hr-primary) !important;
+    box-shadow: 0 0 0 2px var(--hr-primary-soft) !important;
+}}
+    </style>
+    """
+
+    st.markdown(css, unsafe_allow_html=True)
+
+    # Restore and save the browser's last theme selection.
+    _synchronize_theme_with_browser(get_active_theme())
+
+    # Apply a browser-level fallback after the CSS is injected.
+    _enforce_input_value_contrast(tokens)

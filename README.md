@@ -1,2 +1,1347 @@
 # HR_Assistant-Team-B
 Repository - Lindy-Lander
+
+# AI HR Assistant
+
+This is the base project foundation for the modular HR Assistant.
+
+Included:
+- Complete folder architecture
+- Centralized settings and logging
+- Reusable Streamlit UI shell
+- Light and dark mode
+- Placeholder pages
+
+Not implemented yet:
+- Database business logic
+- Authentication
+- Employee, policy, leave, request, and document workflows
+
+## Run
+
+```powershell
+cd hr_assistant
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+streamlit run app.py
+```
+
+
+## Foundation v1.1 update
+
+- Sidebar is fixed on the left side.
+- Sidebar width is locked to 285px.
+- Sidebar collapse controls are hidden.
+- Sidebar remains visible while the main content scrolls.
+
+
+## Foundation v1.2 update
+
+- Sidebar is forced to remain expanded.
+- All known Streamlit collapse-button selectors are hidden.
+- The main content keeps a permanent 285px sidebar offset.
+- `initial_sidebar_state` is explicitly set to `expanded`.
+
+
+## Foundation v1.3
+
+- Fixed the CSS string formatting error caused by literal percentage symbols.
+- Kept the sidebar permanently expanded.
+- Added broader selectors for Streamlit sidebar controls.
+
+
+## Database Architecture Module
+
+This version adds:
+
+- SQLAlchemy 2.x database layer
+- SQLite development database
+- PostgreSQL-compatible database URL configuration
+- Flexible SQLAlchemy adapter
+- Company, role, department, user, and employee models
+- Company-based data isolation
+- Repository pattern
+- Employee-number uniqueness per company
+- Duplicate employee full names are allowed
+- Database creation and verification scripts
+
+### Create the database
+
+```powershell
+python scripts\create_database.py
+python scripts\check_database.py
+pytest tests\test_database.py -v
+```
+
+Authentication and seed users are intentionally not included yet.
+
+
+## Initial Data and Company Isolation Module
+
+This version adds:
+
+- Default company seed
+- Five company-scoped system roles
+- Initial company administrator
+- Argon2 password hashing
+- Initial admin employee profile
+- Idempotent initial-data script
+- Company-scoped user uniqueness
+- Employee-number uniqueness per company
+- Duplicate employee full names are allowed
+- Initial-data verification and tests
+
+### Configure the initial administrator
+
+Copy `.env.example` values into `.env` and change:
+
+```text
+INITIAL_COMPANY_CODE
+INITIAL_COMPANY_NAME
+INITIAL_ADMIN_USERNAME
+INITIAL_ADMIN_EMAIL
+INITIAL_ADMIN_PASSWORD
+INITIAL_ADMIN_EMPLOYEE_NUMBER
+INITIAL_ADMIN_FIRST_NAME
+INITIAL_ADMIN_LAST_NAME
+```
+
+The initial user is forced to change the password when login is implemented.
+
+### Run
+
+```powershell
+python scripts\create_initial_data.py
+python scripts\check_initial_data.py
+pytest tests\test_password_manager.py tests\test_initial_data.py -v
+```
+
+Running `create_initial_data.py` repeatedly is safe and does not create duplicate records.
+
+
+## v3.1 Commented Modules
+
+This version keeps the same v3 behavior and adds:
+
+- Expanded module docstrings
+- Inline comments for important syntax and decisions
+- Clear layer and data-flow explanations
+- Debugging notes
+- Comments for company isolation and duplicate-name handling
+- Comments for password hashing and seed idempotency
+- `DEVELOPER_GUIDE.md`
+
+
+## v4 Authentication and Login
+
+Implemented:
+
+- Company-code login
+- Username or email login
+- Argon2 verification
+- Active account validation
+- Streamlit authentication session
+- Admin and employee routing
+- Protected layouts
+- Logout
+- Mandatory temporary-password replacement
+- Light and dark mode on authentication pages
+- Commented modules and debugging notes
+
+Run:
+
+```powershell
+python scripts\check_initial_data.py
+python scripts\check_authentication.py
+pytest tests\test_authentication.py -v
+streamlit run app.py
+```
+
+
+## v4.1 Light Mode Widget Contrast Fix
+
+Fixed:
+
+- Invisible text-input and password labels in light mode
+- Dark input surfaces remaining active in light mode
+- Low-contrast password visibility and help icons
+- Low-contrast warning text
+- Default red form-submit button replaced with the shared primary color
+- Theme-aware form border and background
+
+No authentication or database behavior was changed.
+
+
+## v5 User and Employee Management
+
+Implemented:
+- Company-scoped Users page
+- Company-scoped Employees page
+- Employee onboarding
+- Optional login-account creation
+- Role, department, and manager selection support
+- Account activation/deactivation
+- Self-deactivation protection
+- Duplicate full-name support
+- Admin dashboard metrics
+- Commented modules and automated tests
+
+Run:
+```powershell
+pytest tests\test_admin_management.py -v
+streamlit run app.py
+```
+
+
+## v5.1 Input Text Contrast Fix
+
+Fixed:
+
+- Light-mode input value text contrast
+- Light-mode input background for current Streamlit BaseWeb DOM
+- Password and text fields using both input and base-input wrappers
+- Browser autofill contrast
+- Nested primary-button text color
+
+No database, authentication, user-management, or employee-management logic changed.
+
+
+## v5.2 White Input Text in All Themes
+
+UI-only fix:
+
+- Input values remain white in light mode.
+- Input values remain white in dark mode.
+- Input backgrounds remain dark in both modes.
+- Password, email, username, number, and autofilled fields are covered.
+- Placeholder text remains lighter than entered values.
+- No authentication, database, user, or employee-management logic changed.
+
+
+## v5.3 Theme Loader f-string Fix
+
+Fixed:
+
+- NameError caused by unescaped CSS braces inside the Python f-string.
+- White input text remains active in both light and dark modes.
+- No authentication, database, Users, or Employees logic changed.
+
+
+## v5.4 White Input Runtime Fix
+
+UI-only changes:
+
+- Removed the input text-shadow that caused outlined/ghost text.
+- Added explicit focus and text-selection colors.
+- Forced native dark input color scheme in both application themes.
+- Added a zero-height MutationObserver fallback that applies white
+  text directly to rendered Streamlit input elements.
+- The script changes styles only and does not read or transmit values.
+- Authentication, database, Users, and Employees logic are unchanged.
+
+
+## v6 Organization Setup Management
+
+Implemented:
+
+- Company Profile page
+- Company-name update with immutable company code
+- Departments page
+- Department creation and status management
+- Roles page
+- Custom role creation and status management
+- System-role protection
+- Assigned-role deactivation protection
+- Company-scoped validation and tests
+- Commented modules and updated developer guide
+
+Run:
+
+```powershell
+pytest tests\test_organization_management.py -v
+streamlit run app.py
+```
+
+
+## v6.1 Persistent Theme Selection
+
+The selected theme remains active after form submissions, widget reruns,
+browser refresh, logout/login, and new Streamlit sessions in the same
+browser. Persistence uses session state, the URL theme parameter, and
+browser localStorage.
+
+
+## v6.6 Simple Default-Account Password Reset
+
+This checkpoint removes the persistent browser authentication-token
+experiment and returns to the simpler Streamlit session-state login flow.
+
+Behavior:
+
+1. A newly seeded default administrator starts with
+   `must_change_password=True`.
+2. After successful login, the password-change page opens immediately.
+3. Admin and employee portals remain blocked until the password changes.
+4. After a successful change, the flag becomes `False`.
+5. Later logins proceed normally.
+6. The seed does not force another reset for an existing account.
+
+For an existing default administrator, require another reset with:
+
+```powershell
+python scripts\require_default_password_reset.py
+python scripts\check_default_password_reset.py
+```
+
+The old `auth_sessions` table may remain in an existing SQLite database.
+This simplified checkpoint does not use it.
+
+
+## v6.7 Signed-Cookie Refresh Login
+
+A full browser refresh now restores authentication without returning the
+user to the login form.
+
+Implementation:
+
+- Streamlit session_state handles ordinary widget reruns.
+- `st.context.cookies` reads the signed cookie synchronously on refresh.
+- `streamlit-cookies-controller` writes and removes the cookie only during
+  login, password change, and logout.
+- `itsdangerous` signs and timestamps the cookie.
+- No `auth_sessions` database table or migration is used.
+- Password changes invalidate old cookies automatically.
+- Inactive users, companies, or roles cannot restore authentication.
+- The last employee/admin portal and page are stored in URL navigation
+  parameters and restored only after authorization checks.
+
+Production environment:
+
+```env
+AUTH_COOKIE_SECRET=replace-with-a-long-random-secret
+AUTH_COOKIE_HOURS=12
+AUTH_COOKIE_SECURE=true
+```
+
+For local `http://localhost`, keep `AUTH_COOKIE_SECURE=false`.
+
+
+## v6.8 All Form Widget Contrast Fix
+
+The login page text inputs were already forced to use a dark surface and
+white value text in both themes. Employee and organization forms also use
+date and select widgets, which required separate Streamlit/BaseWeb
+selectors.
+
+Fixed widgets:
+
+- Text and password inputs
+- Number inputs
+- Date and time inputs
+- Text areas
+- Selectboxes and multiselects
+- Dropdown option menus
+- Date calendar popover
+
+All listed widgets now use a consistent dark input surface with white value
+text in both light and dark application modes.
+
+
+## v6.9 Selectbox Value Contrast Fix
+
+The date input was already fixed, but selectbox values such as
+`No Department` and `No Manager` were still rendered using a nested
+BaseWeb combobox element.
+
+The theme now targets `data-baseweb="select"` directly and forces the
+selected value, placeholder, combobox input, arrow, and dropdown options
+to use white text on the shared dark input surface in both themes.
+
+
+## v7.0 Refresh Login and Universal Form Contrast
+
+Refresh login:
+
+- The signed cookie is written first.
+- The browser performs a real reload only after a short commit delay.
+- Streamlit restores the user from the cookie on the next request.
+- No auth-session database table or migration is used.
+- Logout removes the cookie before returning to login.
+- Password change replaces the signed cookie.
+
+Universal form contrast:
+
+- Text and password inputs
+- Number inputs
+- Date and time inputs
+- Text areas
+- Disabled values
+- Selectbox and multiselect values
+- Dropdown options
+- Browser autofill
+
+All listed controls use white values on the shared dark input surface in
+both light and dark modes.
+
+
+## v7.1 Employee-Only Flow Validation
+
+A dedicated employee-only account flow is now tested.
+
+Create a local sample employee:
+
+```powershell
+python scripts\create_sample_employee_account.py
+python scripts\check_sample_employee_account.py
+```
+
+First-run test credentials:
+
+```text
+Company code: value of INITIAL_COMPANY_CODE
+Username: employee.test
+Temporary password: Employee123!
+```
+
+Expected behavior:
+
+- Mandatory password change opens after first login.
+- After changing the password, Employee Portal opens.
+- No Admin Portal button is shown.
+- Direct admin URL/query changes are redirected to Employee Portal.
+- Admin layout independently rejects employee access.
+- Browser refresh restores the employee role without elevating access.
+- Admin and employee accounts remain separate database records.
+
+The sample-account script is idempotent and does not reset an existing
+employee password.
+
+
+## v7.2 Login and Logout Transition Fix
+
+Resolved:
+
+- Login no longer remains indefinitely on `Completing sign in…`.
+- Logout no longer leaves only the protected sidebar visible.
+- The cookie component writes/removes the browser cookie first.
+- A native one-second Streamlit fragment timer then reruns the full app.
+- No sandboxed iframe top-level navigation is attempted.
+- A logout-pending state blocks stale request-cookie restoration during the
+  same Streamlit WebSocket session.
+
+Expected:
+
+```text
+Sign In
+→ Completing sign in…
+→ Dashboard / Employee Portal
+
+Log Out
+→ Signing out…
+→ Login page
+```
+
+
+## v8.0 HR Policy Q&A
+
+Implemented:
+
+- Company-scoped `hr_policies` table
+- Draft, published, and archived policy statuses
+- Versioned policy records
+- Effective-date filtering
+- Protected administrator Policies page
+- Employee Company Policies browser
+- Functional employee Policy Q&A chat
+- Generic section and keyword matching
+- Approved-policy source references
+- Exact fallback:
+  `Information not found in approved company policies.`
+- Draft, archived, future-effective, and other-company policies are excluded
+- Runtime creation of the missing `hr_policies` table
+- Sample policy seed script
+
+Local test setup:
+
+```powershell
+python scripts\create_sample_policies.py
+streamlit run app.py
+```
+
+This module intentionally does not use a generative LLM or external
+knowledge. Full document ingestion and advanced RAG remain future modules.
+
+
+## v8.1 File-Based Policy Management
+
+Policy source of truth is now the uploaded file.
+
+Supported files:
+
+- PDF
+- DOCX
+- TXT
+- Markdown
+
+Upload flow:
+
+```text
+Admin uploads policy file
+→ file validation and SHA-256 calculation
+→ private company-scoped storage
+→ text and section extraction
+→ draft or published policy record
+→ employee Policy Q&A
+→ direct answer with filename, section, and PDF page when available
+```
+
+Security and correctness:
+
+- Maximum upload size is configurable.
+- Unsupported file types are rejected.
+- Filenames are sanitized before storage.
+- Relative paths are checked against path traversal.
+- Exact duplicate files are blocked within the same company.
+- Draft, archived, future-effective, and other-company files are excluded.
+- Employees download files only after company and publication checks.
+- Scanned image-only PDFs are rejected because OCR is not enabled yet.
+- Existing v8.0 manual policies remain readable for backward compatibility.
+
+Configuration:
+
+```env
+POLICY_UPLOAD_DIR=data/uploads/policies
+POLICY_UPLOAD_MAX_MB=10
+```
+
+Local sample:
+
+```powershell
+python scripts\create_sample_policies.py
+```
+
+
+## v8.2 Admin Policy Content Viewer
+
+Administrators can now select an existing policy and inspect:
+
+- Policy status, version, category, effective date, and summary
+- Original filename, MIME type, file size, page count, and SHA-256
+- Extracted policy content stored in the database
+- The exact searchable sections used by Policy Q&A
+- Optional PDF page number for each searchable section
+- Original uploaded file download
+- Complete extracted-text download
+- Section heading/content search
+- Publication-status management
+
+Large extracted documents show the first 100,000 characters in the browser
+and provide a complete plain-text download.
+
+All content-view operations validate `company_id` through `PolicyService`.
+Older v8.0 manual policy entries remain viewable.
+
+
+## v8.2.1 Employee Onboarding Polish
+
+The normal administrator Add Employee form now:
+
+- Shows Role, Username, Login Email, and Temporary Password at all times
+- Removes the optional login-account checkbox
+- Creates the employee profile and linked login account together
+- Defaults the role selector to `employee`
+- Warns before assigning an elevated administrator role
+- Requires a password change on first login
+- Shows clear missing-field messages
+
+The backend retains profile-only employee support for future imports,
+integrations, and record-only workflows. It is not exposed in the standard
+administrator onboarding form.
+
+
+## v8.2.2 Secure Forgot Password
+
+Self-service flow:
+
+```text
+Forgot Password
+  ↓
+Company Code + registered Login Email
+  ↓
+single-use reset link
+  ↓
+new password + confirmation
+  ↓
+old signed login cookies become invalid
+```
+
+Security:
+
+- Existing passwords are never decrypted, displayed, or emailed.
+- Database stores only a SHA-256 reset-token hash.
+- Reset tokens expire after 30 minutes by default.
+- Reset tokens are single-use.
+- New reset requests revoke older active links.
+- A per-account cooldown limits repeated emails.
+- Public responses are generic to prevent account enumeration.
+- Password changes invalidate signed-cookie password fingerprints.
+- Open authenticated sessions are revalidated on the next Streamlit run.
+- Company code and Login Email preserve tenant isolation.
+
+Email modes:
+
+```env
+EMAIL_DELIVERY_MODE=local
+```
+
+Local development writes `.eml` files to:
+
+```text
+data/dev_mail_outbox
+```
+
+Read the latest local message with:
+
+```powershell
+python scripts\show_latest_password_reset_email.py
+```
+
+Production SMTP example:
+
+```env
+EMAIL_DELIVERY_MODE=smtp
+PASSWORD_RESET_BASE_URL=https://hr.example.com
+SMTP_HOST=smtp.office365.com
+SMTP_PORT=587
+SMTP_USERNAME=hr-system@example.com
+SMTP_PASSWORD=your-app-password-or-smtp-password
+SMTP_FROM_EMAIL=hr-system@example.com
+SMTP_FROM_NAME=Company HR
+SMTP_USE_STARTTLS=true
+SMTP_USE_SSL=false
+```
+
+The `Users` administration page also includes an administrator-assisted
+temporary-password reset for employees who cannot access their registered
+Login Email. The employee must change that temporary password on next login.
+
+
+## v8.2.3 Real SMTP Email Delivery
+
+Forgot Password can now use real internet email through the configured SMTP
+provider.
+
+Configure SMTP interactively:
+
+```powershell
+python scripts\configure_smtp.py
+```
+
+The setup supports:
+
+- Gmail / Google Workspace preset
+- Microsoft 365 preset
+- Custom SMTP host, port, and encryption
+
+The private `.env` file receives the sender credentials. Existing values
+are preserved and an `.env.backup` is created before updating an existing
+file. The password is not printed by the setup script.
+
+After configuration:
+
+```powershell
+Ctrl + C
+streamlit cache clear
+streamlit run app.py
+```
+
+Then open:
+
+```text
+Admin Portal → Integrations
+```
+
+The page safely displays:
+
+- Delivery mode
+- SMTP host and port
+- Encryption
+- Whether a username is configured
+- Sender name/email
+- Password-reset public URL
+
+The SMTP password is never returned to the UI.
+
+Use **Send Internet Test Email** before testing Forgot Password. A successful
+test confirms that the app can reach the SMTP provider and authenticate with
+the configured sender account.
+
+Command-line test:
+
+```powershell
+python scripts\test_smtp_email.py recipient@example.com
+```
+
+The public Forgot Password page no longer displays local outbox paths or
+development implementation details.
+
+
+## v8.2.4 Email-Only Forgot Password
+
+The employee Forgot Password form now asks for only:
+
+```text
+Registered Login Email
+```
+
+It no longer asks for Company Code.
+
+Flow:
+
+```text
+Registered Login Email
+  ↓
+system finds active matching accounts
+  ↓
+single-use reset email
+  ↓
+new password
+  ↓
+sign in using the new password
+```
+
+Multi-company handling:
+
+- Login Email remains company-scoped in normal account management.
+- The same email may exist in more than one company.
+- When that happens, each active matching account receives a separate email.
+- Every message identifies the company and contains a token bound to only
+  that company and user account.
+- The public screen still returns the same generic response and does not
+  reveal the number of matching accounts.
+
+The SMTP provider remains a one-time private backend configuration. The
+employee does not choose Gmail, Microsoft 365, a sender username, password,
+or display name.
+
+
+## v8.2.6 Employees Workspace Consolidation
+
+The previous separate sidebar pages:
+
+- Users
+- Employees
+- Roles
+
+are now consolidated under one **Employees** navigation item.
+
+Workspace tabs:
+
+```text
+Employees
+  ├─ Employee Records
+  ├─ User Accounts
+  └─ Roles & Access
+```
+
+Responsibilities:
+
+- **Employee Records** — employee list, onboarding, department/manager
+  assignment, and linked account creation
+- **User Accounts** — activation/deactivation and administrator-assisted
+  temporary-password reset
+- **Roles & Access** — system/custom role list, custom role creation, and
+  custom-role activation status
+
+Old bookmarks or query parameters for `Users` and `Roles` still open the
+Employees workspace instead of failing.
+
+
+## v8.3.0 Employee Master Record
+
+The previous Employees workspace has been simplified to:
+
+```text
+Employees
+  ├─ Employee List
+  ├─ Add Employee
+  └─ Edit Employee
+```
+
+Removed from the administrator UI:
+
+- User Accounts tab
+- Roles & Access tab
+- Custom role assignment
+
+Each employee record now contains:
+
+```text
+Employee Number
+Last Name
+First Name
+Middle Name (optional)
+Suffix (optional)
+Job Title / Position
+Department
+Manager
+Email
+Status: Employed or Resigned
+Training checklist
+Account:
+  User ID
+  User Name
+  Password reset field
+  Clearance: 1 Admin or 2 User
+```
+
+Important security behavior:
+
+- Actual passwords are never displayed or stored as plain text.
+- The database stores only the Argon2 password hash.
+- Editing the password uses a blank **New Temporary Password** field.
+- A new temporary password forces password change during next login.
+- Resigned employees remain in the database but their login account becomes
+  inactive.
+- Full Name is calculated from the separate name fields.
+- Each training item is a separate database row, but the employee table
+  displays the checklist in one combined cell.
+
+Existing databases are upgraded automatically:
+
+- Adds `users.clearance`
+- Maps old administrator roles to clearance 1
+- Maps other roles to clearance 2
+- Converts active status to Employed
+- Creates `employee_trainings`
+
+
+## v8.3.1 Wrapped Employee Table
+
+The Employee List no longer uses the default Streamlit dataframe renderer.
+
+Every table cell now supports:
+
+- automatic text wrapping
+- preserved multiline Training checklist
+- preserved multiline Account details
+- top-aligned content
+- long-email and long-word breaking
+- sticky table header
+- horizontal scrolling on smaller displays
+
+Dynamic employee values are HTML-escaped before rendering.
+
+
+## v8.3.2 Employment and Account Status Sync
+
+```text
+Employed -> Account Active
+Resigned -> Account Inactive
+```
+
+The rule works in both directions. Returning a resigned employee to
+Employed automatically reactivates the linked login account. Resigned
+employee records remain stored for historical reference.
+
+
+## v8.3.3 Consistent Administration Tables
+
+The default Streamlit dataframe grid was replaced on administration pages
+because its internal theme could remain dark while the surrounding app was
+in Light Mode.
+
+Updated tables:
+
+- Employees
+- Policies
+- Policy details and original-file details
+- Departments
+- Integrations
+- Legacy Users and Roles pages
+
+All tables now provide:
+
+- correct Light/Dark theme colors
+- wrapped text in every cell
+- multiline content support
+- sticky headers
+- horizontal scrolling on smaller screens
+- HTML-escaped dynamic values
+- CSS scoped to each table only
+
+
+## v8.3.4 Department Entry Through Employees
+
+The separate Departments sidebar item and active route have been removed.
+
+```text
+Employees
+  ├─ Add Employee -> Department
+  └─ Edit Employee -> Department
+```
+
+Existing department names are reused case-insensitively. New department names
+create normalized database records automatically. The Department model,
+table, repository, and employee relationship remain for filtering, reports,
+and future integrations. Old Departments bookmarks redirect to Employees.
+
+
+## v8.3.5 Safe Employee Delete
+
+A permanent-delete option is available under:
+
+```text
+Employees -> Edit Employee -> Danger Zone
+```
+
+The admin must type the exact Employee Number and acknowledge the permanent
+action. The signed-in administrator cannot delete their own account.
+Employees referenced by policy history cannot be deleted and should be set
+to Resigned instead.
+
+Deletion removes the employee profile, training records, linked login
+account, and password-reset tokens. Department records and direct-report
+employees remain. Direct reports are changed to No Manager.
+
+
+## v8.3.6 Employee Operation Feedback
+
+Employee operations now show a visible loading indicator:
+
+```text
+Add Employee    -> Creating employee record and login account…
+Edit Employee   -> Saving employee changes…
+Delete Employee -> Permanently deleting employee record…
+```
+
+After completion, the result is stored in Streamlit session state before
+`st.rerun()`. The refreshed Employees page displays both:
+
+- a persistent success banner
+- a short success toast
+
+Validation and database errors remain visible in the active form and do not
+show a false success message.
+
+
+## v8.3.7 Hover Style Restore
+
+Hover styling is restored without changing employee business logic.
+
+Updated:
+
+- normal and sidebar buttons
+- primary/form-submit buttons
+- page tabs
+- expanders, including the Delete Danger Zone
+- Employees table rows
+- reusable administration table rows
+
+The hover uses the shared `primary_soft` token, so Light Mode receives a
+soft blue-violet background and Dark Mode receives the matching dark accent.
+No transform, movement, or layout shift is applied.
+
+
+## v8.3.10 Light Mode Only
+
+The application now uses one fixed Light Mode and no theme selector.
+
+Light form controls:
+
+- white input/select/textarea background
+- dark readable values
+- muted gray placeholder text
+- soft gray-blue hover border
+- violet focus border
+- white dropdown/calendar surfaces
+- soft blue-violet option hover
+
+Preserved from v8.3.7:
+
+- sidebar and page layout
+- wrapped administration tables
+- button, tab, expander, and row hover behavior
+- employee add/edit/delete behavior
+- loading indicators
+- success banners and toasts
+- authentication and database logic
+
+No native `.streamlit/config.toml` override was introduced.
+
+
+## v8.3.11 Light Mode Text Contrast Fix
+
+Text color now follows the actual UI surface:
+
+```text
+White/light surface       -> dark text
+Violet/primary surface    -> white text
+Soft-violet hover surface -> violet text
+Disabled light field      -> readable muted text
+```
+
+The patch also forces Streamlit/BaseWeb input and select wrappers to remain
+white whenever their value text is dark. This prevents black text from
+appearing on a retained dark native control background.
+
+No employee, authentication, loading, database, table-layout, or navigation
+logic was changed.
+
+
+## v8.3.12 Light Page with Dark Inputs
+
+The page remains Light Mode while editable controls use the approved dark
+surface.
+
+```text
+Page/cards/sidebar  -> Light
+Input box           -> Dark (#252630)
+Typed value         -> White
+Placeholder         -> Muted light gray
+Input hover         -> Slightly lighter dark
+Input focus         -> Violet border
+Dropdown            -> Dark with white text
+```
+
+Labels remain dark because they are outside the input and displayed on the
+light page. No employee, authentication, loading, table, or database logic
+was changed.
+
+
+## v8.3.13 Native Control Hover
+
+Added scoped hover styling for Streamlit controls that do not inherit the
+normal button/input hover rules:
+
+- file-uploader dropzone
+- Upload/Browse button
+- uploaded-file row
+- remove-file button
+- checkbox label and indicator
+
+The page remains Light Mode while form controls remain dark with white text.
+No policy upload logic, employee logic, database logic, or layout changed.
+
+
+## v8.3.14 Tooltip Contrast Fix
+
+Streamlit help tooltips now use:
+
+```text
+Tooltip surface -> dark
+Tooltip text    -> white
+Tooltip icon    -> readable gray
+Icon hover      -> soft violet
+```
+
+CSS and a small MutationObserver fallback both cover tooltips created after
+the initial Streamlit render. Existing file-uploader hover, Light Mode page,
+dark controls, white input values, and application logic are unchanged.
+
+
+## v8.3.15 Download Action Contrast
+
+The three active download actions now have explicit states:
+
+```text
+Normal   -> white surface, dark text
+Hover    -> violet surface, white text
+Focus    -> violet surface, white text, focus ring
+Active   -> darker violet
+Disabled -> light gray surface, readable muted text
+```
+
+The visual audit also rechecked ordinary buttons, form-submit buttons,
+file uploaders, tooltips, checkboxes, inputs, tabs, and tables. No policy,
+employee, authentication, or database logic changed.
+
+
+## v8.4.0 Policy Library Redesign
+
+- User-facing IDs use `PID_001` format.
+- The active table shows Filename/Title, Category, Version, File Size, and Date Uploaded.
+- Filename-derived title and heading-derived category suggestions are automatic.
+- Category remains editable and is used for filtering and Q&A organization.
+- Version stays manual while previous versions remain visible.
+- Upload preview is integrated into the upload section.
+- Every successful upload is immediately published.
+- Policies can be moved to a reversible Bin and restored; no permanent delete exists.
+- Both filename auto-detection and explicit existing-policy selection link new versions.
+
+
+## v8.4.1 Expander Contrast Fix
+
+The Document Preview header is now readable before hover.
+
+```text
+Normal   -> white surface, dark text
+Hover    -> soft violet surface, violet text
+Focused  -> soft violet surface, visible focus treatment
+Expanded -> pale violet surface, violet text
+Arrow    -> readable gray/violet
+```
+
+The same styling applies consistently to other Streamlit expanders.
+Policy preview content, upload processing, version linking, Bin behavior,
+employee logic, authentication, and database logic are unchanged.
+
+
+## v8.4.2 Toast Contrast Fix
+
+Success toasts now use a complete dark-surface contrast system:
+
+```text
+Toast surface -> dark
+Message text  -> white
+Success icon  -> bright green
+Close icon    -> light gray
+Toast hover   -> slightly lighter dark
+```
+
+CSS and the existing MutationObserver runtime fallback cover notifications
+created after a Streamlit rerun. The page success banner, policy Bin action,
+upload flow, tables, employee features, authentication, and database logic
+are unchanged.
+
+
+## v8.4.3 Policy Upload Reset
+
+After a successful policy upload, the entire upload workspace resets:
+
+```text
+successful database/file transaction
+  ↓
+advance upload-widget generation
+  ↓
+Streamlit rerun
+  ↓
+empty file uploader
+  ↓
+title/category/version/preview/history controls hidden
+```
+
+The reset covers:
+
+- selected policy file
+- version-linking choice
+- selected existing policy
+- suggested/edited category
+- manual version value
+- previous-version table
+- extracted document preview
+- upload submit state
+
+Validation, parsing, duplicate-version, or database errors do not reset the
+form, allowing the administrator to correct the current upload. The success
+banner and toast remain visible after the rerun.
+
+
+## v8.4.4 Policy Edit, New Version, and Permanent Delete
+
+### Manage Existing Policy
+
+New actions:
+
+```text
+Edit Details
+Upload New Version
+Move to Bin
+```
+
+- Policy Title and Category are applied to all versions in the same policy
+  family so version history remains grouped.
+- Version changes only the selected record.
+- Editing metadata never overwrites the original uploaded file or extracted
+  content.
+- Upload New Version creates a separate published record and preserves all
+  earlier active or Bin versions.
+
+### Bin
+
+New protected action:
+
+```text
+Delete Permanently
+```
+
+The administrator must type the exact Policy ID and acknowledge permanent
+deletion. The operation removes only the selected Bin version:
+
+- policy database row
+- original stored file
+- uploaded-document metadata
+- extracted full text
+- searchable sections
+
+Other versions of the same policy remain available. Active policies cannot
+be permanently deleted; they must be moved to the Bin first.
+
+
+## v8.4.5 Policy Content Edit and Readable Preview
+
+### Edit Details
+
+The selected version now includes editable Policy Content. Saving it updates:
+
+- policy database content
+- extracted-content viewer
+- generated summary
+- stored extracted text
+- searchable sections used by Policy Q&A
+
+The original uploaded file, hash, filename, and storage path remain unchanged.
+Regenerated sections no longer retain page numbers because edited content may
+not match the original source pages exactly.
+
+### Upload Preview
+
+Detected headings are displayed as a wrapped vertical numbered list.
+
+Extracted content is displayed in a section-by-section stacked preview:
+
+```text
+1. Section Heading
+────────────────────────────────
+Section content
+
+2. Next Heading
+────────────────────────────────
+Next section content
+```
+
+The layout is shared by the main Upload Policy flow and Upload New Version.
+
+
+## v8.4.6 Full Policy Content View
+
+Policy content is no longer limited in the administrator interface.
+
+### Edit Details
+
+- The complete editable content is loaded.
+- Editor height expands according to all content lines.
+- No internal fixed-height content limit is used.
+- Line height is reduced to `1.30` for a compact but readable layout.
+
+### Upload and New-Version Preview
+
+- Every unique detected heading is displayed.
+- The `+ more detected sections` message is removed.
+- Every extracted section and its full text are displayed.
+- Character and section preview limits are removed.
+- Section gaps and list spacing are reduced.
+- The complete preview remains inside the collapsible Document Preview area.
+
+No policy extraction, save, versioning, Bin, employee, authentication, or
+database behavior changed.
+
+
+## v8.4.7 Policy Section Heading and Content Layout
+
+Each preview section now follows:
+
+```text
+────────────────────────────────
+Topic / Heading
+Content
+────────────────────────────────
+Next Topic / Heading
+Content
+────────────────────────────────
+```
+
+The separator is no longer between a heading and its own content. Heading
+and body are rendered inside one scoped HTML section.
+
+Source text is escaped and newlines are converted to explicit HTML breaks,
+preventing the last part of long documents from leaving the dark preview
+surface and inheriting black Light Mode text. All nested heading and body
+text is forced to white.
+
+The complete unlimited preview remains enabled.
+
+
+## v8.5.0 Leave Management
+
+### Administration Portal
+
+The former **Leave Settings** navigation item is now **Leave Management**.
+It contains:
+
+- Leave Overview
+- Leave Credits per employee
+- Manual credit adjustments and credit history
+- Leave Requests for monitoring and View Details only
+- Leave Types & Rules
+
+There are no Admin approve, reject, or cancel actions. Requests are sent to
+the employee's assigned department manager. The employee and active company
+administrators are copied on the email.
+
+### Employee Portal
+
+Employees can:
+
+- review annual, carried, adjusted, used, reserved, and remaining credits
+- submit Vacation, Sick, Emergency, or configured leave requests
+- attach PDF, DOCX, PNG, JPG, or JPEG supporting documents
+- see their sent request history
+
+Submitting a request reserves available credits, records the request, creates
+in-app notifications, and sends an email to the assigned manager. Approval is
+handled through the department process outside the HR Admin portal.
+
+### Notification Bell
+
+The authenticated top bar now includes a bell with unread count, recent
+notifications, and a **Mark All as Read** action.
+
+New database tables are created automatically and non-destructively:
+
+- `leave_types`
+- `leave_balances`
+- `leave_credit_transactions`
+- `leave_requests`
+- `notifications`
+
+
+## v8.5.1 Company Theme Color
+
+Company Profile now includes a company-wide Primary Accent Color picker.
+
+```text
+Default color       -> violet (#4338E8)
+Selected color      -> stored per company
+Primary buttons     -> selected color
+Hover state         -> automatically derived
+Soft accent         -> automatically derived
+Text on accent      -> automatically black or white for contrast
+```
+
+The saved color is used in both Administration and Employee portals for:
+
+- active sidebar navigation
+- primary and submit buttons
+- tab accents
+- focus borders and rings
+- checkbox and selection states
+- notification bell hover
+- uploader and download actions
+- branding and soft hover surfaces
+
+The color is stored in `companies.theme_primary_color`. Existing databases
+receive the column non-destructively and keep the default violet color.
+
+Company Profile provides:
+
+- live Primary, Hover, and Soft Accent preview
+- Save Theme Color
+- Reset to Default Violet
+
+Light Mode remains fixed. Dark input surfaces, white input values, Leave
+Management, policy features, authentication, and business logic are
+unchanged.
+>>>>>>> 9cc3cac (First commit: initial project setup)

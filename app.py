@@ -1,0 +1,154 @@
+"""AI HR Assistant Streamlit entry point.
+
+Routing:
+1. Initialize UI and authentication state.
+2. Apply the fixed Light Mode theme.
+3. Show login when logged out.
+4. Force temporary-password replacement.
+5. Route administrators and employees to protected layouts.
+"""
+
+import streamlit as st
+
+from authentication.access_control import AccessControl
+from authentication.session_manager import AuthSessionManager
+from config.settings import get_settings
+from core.constants import DEFAULT_COMPANY_THEME_COLOR
+from database.runtime_schema import initialize_runtime_schema
+from database.session import SessionFactory
+from ui.auth_navigation import get_auth_action
+from ui.layouts.admin_layout import render_admin_layout
+from ui.layouts.auth_layout import (
+    render_forgot_password_layout,
+    render_login_layout,
+    render_password_change_layout,
+    render_reset_password_layout,
+)
+from ui.layouts.user_layout import render_user_layout
+from ui.session_state import initialize_session_state
+from services.organization_service import OrganizationService
+from ui.theme.theme_loader import apply_theme
+
+
+def _load_company_theme_color(
+    company_id: int,
+) -> str:
+    """Load the company accent with a safe default fallback."""
+
+    try:
+        with SessionFactory() as session:
+            company = OrganizationService(
+                session
+            ).get_company(company_id)
+
+        return (
+            company.theme_primary_color
+            or DEFAULT_COMPANY_THEME_COLOR
+        )
+    except Exception:
+        # Authentication and routing remain usable if branding lookup fails.
+        return DEFAULT_COMPANY_THEME_COLOR
+
+
+def main() -> None:
+    """Start the application and route the current browser session."""
+
+    settings = get_settings()
+
+    st.set_page_config(
+        page_title=settings.app_name,
+        page_icon="🤖",
+        layout="wide",
+        initial_sidebar_state="expanded",
+    )
+
+    # Create newly introduced tables without deleting existing data.
+    initialize_runtime_schema()
+
+    initialize_session_state()
+
+    # Forgot/reset pages remain public even when a stale browser cookie
+    # exists. Token validation still occurs inside the reset service.
+    auth_action = get_auth_action()
+
+    if auth_action == "forgot":
+        apply_theme()
+        render_forgot_password_layout(settings)
+        return
+
+    if auth_action == "reset":
+        apply_theme()
+        render_reset_password_layout(settings)
+        return
+
+    # Browser refresh creates a new Streamlit session. Restore the
+    # signed cookie synchronously before deciding to show login.
+    AuthSessionManager.restore_from_cookie()
+
+    if not AuthSessionManager.is_authenticated():
+        apply_theme()
+        render_login_layout(settings)
+        return
+
+    current_user = AuthSessionManager.get_current_user()
+
+    if current_user is None:
+        AuthSessionManager.logout()
+        st.rerun()
+
+    apply_theme(
+        primary_color=_load_company_theme_color(
+            current_user.company_id
+        )
+    )
+
+    if current_user.must_change_password:
+        render_password_change_layout(
+            settings,
+            current_user,
+        )
+        return
+
+    portal_query_exists = "portal" in st.query_params
+    page_query_exists = "page" in st.query_params
+
+    portal_mode = st.session_state.get(
+        "portal_mode",
+        "admin"
+        if AccessControl.is_admin(current_user)
+        else "employee",
+    )
+
+    # First cookie restore has no saved route yet. Open the correct default
+    # portal based on the restored role.
+    if (
+        not portal_query_exists
+        and not page_query_exists
+        and AccessControl.is_admin(current_user)
+    ):
+        st.session_state.portal_mode = "admin"
+        st.session_state.current_page = "Admin Dashboard"
+        portal_mode = "admin"
+
+    # A query parameter can request admin navigation, but authorization is
+    # still enforced here before rendering any administrator page.
+    if (
+        portal_mode == "admin"
+        and not AccessControl.is_admin(current_user)
+    ):
+        st.session_state.portal_mode = "employee"
+        st.session_state.current_page = "Chat Assistant"
+        portal_mode = "employee"
+
+    if (
+        portal_mode == "admin"
+        and AccessControl.is_admin(current_user)
+    ):
+        render_admin_layout(settings, current_user)
+        return
+
+    render_user_layout(settings, current_user)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,745 @@
+"""Business logic for the editable Employee Master Record.
+
+Flow:
+Employees page -> validation schema -> service -> repositories -> database
+
+The legacy role table is hidden from administrators. Clearance is the
+user-facing access rule:
+- 1 = Admin
+- 2 = User
+"""
+
+from dataclasses import dataclass
+
+from sqlalchemy import delete, func, select, update
+from sqlalchemy.orm import Session
+
+from authentication.password_manager import PasswordManager
+from core.constants import CLEARANCE_ADMIN, CLEARANCE_USER
+from models.department import Department
+from models.employee import Employee
+from models.employee_training import EmployeeTraining
+from models.hr_policy import HRPolicy
+from models.hr_policy_document import HRPolicyDocument
+from models.password_reset_token import PasswordResetToken
+from models.user import User
+from repositories.department_repository import DepartmentRepository
+from repositories.employee_repository import EmployeeRepository
+from repositories.employee_training_repository import (
+    EmployeeTrainingRepository,
+)
+from repositories.role_repository import RoleRepository
+from repositories.user_repository import UserRepository
+from schemas.admin_management_schema import (
+    EmployeeAccountCreate,
+    EmployeeDeleteRequest,
+    EmployeeMasterUpdate,
+)
+from schemas.user_schema import EmployeeCreate, UserCreate
+from services.employee_service import EmployeeService
+from services.user_service import UserService
+
+
+
+@dataclass(frozen=True, slots=True)
+class EmployeeDeletionResult:
+    """Summary returned after a permanent employee deletion."""
+
+    employee_id: int
+    employee_number: str
+    full_name: str
+    deleted_user_id: int | None
+    cleared_manager_assignments: int
+
+
+class AdminManagementService:
+
+    """Coordinate company-scoped employee and account operations."""
+
+    def __init__(self, session: Session) -> None:
+        self.session = session
+        self.user_repository = UserRepository(session)
+        self.employee_repository = EmployeeRepository(session)
+        self.training_repository = EmployeeTrainingRepository(session)
+        self.role_repository = RoleRepository(session)
+        self.department_repository = DepartmentRepository(session)
+        self.password_manager = PasswordManager()
+
+    def list_users(self, company_id: int) -> list[User]:
+        """Compatibility helper for older integrations."""
+
+        return self.user_repository.list_with_details(company_id)
+
+    def list_employees(
+        self,
+        company_id: int,
+    ) -> list[Employee]:
+        """Return complete employee master records."""
+
+        return self.employee_repository.list_with_details(company_id)
+
+    def list_roles(self, company_id: int):
+        """Compatibility helper; roles are no longer shown in the UI."""
+
+        return self.role_repository.list_active(company_id)
+
+    def list_departments(self, company_id: int):
+        """Return active departments."""
+
+        return self.department_repository.list_active(company_id)
+
+    def list_managers(self, company_id: int):
+        """Return employed workers available as managers."""
+
+        return self.employee_repository.list_available_managers(
+            company_id
+        )
+
+    def get_employee(
+        self,
+        *,
+        company_id: int,
+        employee_id: int,
+    ) -> Employee:
+        """Return one editable employee or raise a readable error."""
+
+        employee = self.employee_repository.get_with_details(
+            company_id=company_id,
+            employee_id=employee_id,
+        )
+
+        if employee is None:
+            raise ValueError(
+                "The selected employee does not exist in this company."
+            )
+
+        return employee
+
+    def _get_internal_role(
+        self,
+        *,
+        company_id: int,
+        clearance: int,
+        legacy_role_id: int | None = None,
+    ):
+        """Map simple clearance to one hidden compatibility role."""
+
+        if legacy_role_id is not None:
+            role = self.role_repository.get_by_id(
+                record_id=legacy_role_id,
+                company_id=company_id,
+            )
+            if role is not None:
+                return role
+
+        role_name = (
+            "company_admin"
+            if clearance == CLEARANCE_ADMIN
+            else "employee"
+        )
+
+        role = self.role_repository.get_by_name(
+            company_id,
+            role_name,
+        )
+
+        if role is None:
+            raise ValueError(
+                "Internal account access mapping is unavailable. "
+                "Run: python scripts\\create_initial_data.py"
+            )
+
+        # Roles are internal compatibility records in this version.
+        if not role.is_active:
+            role.is_active = True
+            self.session.commit()
+
+        return role
+
+    def _resolve_department(
+        self,
+        *,
+        company_id: int,
+        department_name: str | None,
+        department_id: int | None = None,
+    ) -> Department | None:
+        """Return an existing department or create a typed department name."""
+
+        if department_name and department_name.strip():
+            normalized_name = department_name.strip()
+
+            existing = next(
+                (
+                    department
+                    for department in self.department_repository.list_all(
+                        company_id
+                    )
+                    if department.name.strip().lower()
+                    == normalized_name.lower()
+                ),
+                None,
+            )
+
+            if existing is not None:
+                if not existing.is_active:
+                    existing.is_active = True
+                    self.session.commit()
+                return existing
+
+            return self.department_repository.create(
+                {
+                    "company_id": company_id,
+                    "name": normalized_name,
+                    "code": None,
+                    "is_active": True,
+                }
+            )
+
+        if department_id is not None:
+            return self.department_repository.get_by_id(
+                record_id=department_id,
+                company_id=company_id,
+            )
+
+        return None
+
+    @staticmethod
+    def _account_is_active_for_status(
+        employment_status: str,
+    ) -> bool:
+        """Map employment status to login-account availability.
+
+        Business rule:
+        - employed -> active account
+        - resigned -> inactive account
+        """
+
+        normalized_status = employment_status.strip().lower()
+
+        if normalized_status == "employed":
+            return True
+
+        if normalized_status == "resigned":
+            return False
+
+        raise ValueError(
+            "Employment status must be Employed or Resigned."
+        )
+
+    def _sync_account_status(
+        self,
+        *,
+        user: User,
+        employment_status: str,
+    ) -> None:
+        """Synchronize one account with the employee's status."""
+
+        user.is_active = self._account_is_active_for_status(
+            employment_status
+        )
+
+    @staticmethod
+    def _training_payload(values) -> list[dict[str, object]]:
+        """Convert validated training inputs into repository values."""
+
+        return [
+            {
+                "title": item.title.strip(),
+                "is_completed": item.is_completed,
+            }
+            for item in values
+            if item.title.strip()
+        ]
+
+    def create_employee_with_optional_account(
+        self,
+        values: EmployeeAccountCreate,
+    ) -> Employee:
+        """Create employee, account, department, and training checklist."""
+
+        new_user: User | None = None
+        department = self._resolve_department(
+            company_id=values.company_id,
+            department_name=values.department_name,
+            department_id=values.department_id,
+        )
+
+        if values.create_login_account:
+            role = self._get_internal_role(
+                company_id=values.company_id,
+                clearance=values.clearance,
+                legacy_role_id=values.role_id,
+            )
+
+            new_user = UserService(self.session).create_user(
+                UserCreate(
+                    company_id=values.company_id,
+                    role_id=role.id,
+                    clearance=values.clearance,
+                    username=str(values.username).strip(),
+                    email=str(values.login_email),
+                    password=str(values.temporary_password),
+                ),
+                must_change_password=True,
+            )
+
+        try:
+            employee = EmployeeService(
+                self.session
+            ).create_employee(
+                EmployeeCreate(
+                    company_id=values.company_id,
+                    user_id=(
+                        new_user.id
+                        if new_user
+                        else None
+                    ),
+                    department_id=(
+                        department.id
+                        if department
+                        else None
+                    ),
+                    manager_id=values.manager_id,
+                    employee_number=(
+                        values.employee_number.strip()
+                    ),
+                    first_name=values.first_name.strip(),
+                    middle_name=(
+                        values.middle_name.strip()
+                        if values.middle_name
+                        else None
+                    ),
+                    last_name=values.last_name.strip(),
+                    suffix=(
+                        values.suffix.strip()
+                        if values.suffix
+                        else None
+                    ),
+                    work_email=values.work_email,
+                    job_title=(
+                        values.job_title.strip()
+                        if values.job_title
+                        else None
+                    ),
+                    hire_date=values.hire_date,
+                    employment_status=(
+                        values.employment_status
+                    ),
+                )
+            )
+
+            self.training_repository.replace_for_employee(
+                company_id=values.company_id,
+                employee_id=employee.id,
+                items=self._training_payload(
+                    values.trainings
+                ),
+            )
+
+            # Employment status is the source of truth for account access.
+            # Resigned records remain stored but cannot log in.
+            if new_user is not None:
+                self._sync_account_status(
+                    user=new_user,
+                    employment_status=(
+                        values.employment_status
+                    ),
+                )
+                self.session.commit()
+
+            # Expire cached relationships before returning the complete
+            # newly created master record.
+            self.session.expire_all()
+
+            return self.get_employee(
+                company_id=values.company_id,
+                employee_id=employee.id,
+            )
+
+        except Exception:
+            if new_user is not None:
+                self.session.delete(new_user)
+                self.session.commit()
+            raise
+
+    def update_employee_master_record(
+        self,
+        values: EmployeeMasterUpdate,
+        *,
+        current_user_id: int,
+    ) -> Employee:
+        """Update all editable employee, training, and account information."""
+
+        employee = self.get_employee(
+            company_id=values.company_id,
+            employee_id=values.employee_id,
+        )
+
+        duplicate_number = (
+            self.employee_repository
+            .get_by_employee_number_excluding(
+                company_id=values.company_id,
+                employee_number=(
+                    values.employee_number.strip()
+                ),
+                employee_id=values.employee_id,
+            )
+        )
+
+        if duplicate_number is not None:
+            raise ValueError(
+                f"Employee number '{values.employee_number}' "
+                "already exists inside this company."
+            )
+
+        if (
+            values.manager_id is not None
+            and values.manager_id == values.employee_id
+        ):
+            raise ValueError(
+                "An employee cannot be assigned as their own manager."
+            )
+
+        department = self._resolve_department(
+            company_id=values.company_id,
+            department_name=values.department_name,
+        )
+
+        user = employee.user
+
+        if user is None:
+            if not values.new_temporary_password:
+                raise ValueError(
+                    "A temporary password is required because this "
+                    "employee does not have a login account yet."
+                )
+
+            role = self._get_internal_role(
+                company_id=values.company_id,
+                clearance=values.clearance,
+            )
+
+            user = UserService(self.session).create_user(
+                UserCreate(
+                    company_id=values.company_id,
+                    role_id=role.id,
+                    clearance=values.clearance,
+                    username=values.username.strip(),
+                    email=str(values.work_email),
+                    password=values.new_temporary_password,
+                ),
+                must_change_password=True,
+            )
+
+            employee.user_id = user.id
+
+        else:
+            duplicate_username = (
+                self.user_repository.get_by_username_excluding(
+                    company_id=values.company_id,
+                    username=values.username.strip(),
+                    user_id=user.id,
+                )
+            )
+
+            if duplicate_username is not None:
+                raise ValueError(
+                    f"Username '{values.username}' already exists "
+                    "inside this company."
+                )
+
+            duplicate_email = (
+                self.user_repository.get_by_email_excluding(
+                    company_id=values.company_id,
+                    email=str(values.work_email),
+                    user_id=user.id,
+                )
+            )
+
+            if duplicate_email is not None:
+                raise ValueError(
+                    f"Email '{values.work_email}' already exists "
+                    "inside this company."
+                )
+
+            role = self._get_internal_role(
+                company_id=values.company_id,
+                clearance=values.clearance,
+            )
+
+            user.username = values.username.strip()
+            user.email = str(values.work_email)
+            user.clearance = values.clearance
+            user.role_id = role.id
+
+            if values.new_temporary_password:
+                user.password_hash = (
+                    self.password_manager.hash_password(
+                        values.new_temporary_password
+                    )
+                )
+                user.must_change_password = True
+
+        # Prevent an administrator from removing their own current access.
+        if user.id == current_user_id:
+            if values.clearance != CLEARANCE_ADMIN:
+                raise ValueError(
+                    "You cannot change your own active clearance to User."
+                )
+            if values.employment_status == "resigned":
+                raise ValueError(
+                    "You cannot mark your own active account as resigned."
+                )
+
+        employee.employee_number = (
+            values.employee_number.strip()
+        )
+        employee.first_name = values.first_name.strip()
+        employee.middle_name = (
+            values.middle_name.strip()
+            if values.middle_name
+            else None
+        )
+        employee.last_name = values.last_name.strip()
+        employee.suffix = (
+            values.suffix.strip()
+            if values.suffix
+            else None
+        )
+        employee.work_email = str(values.work_email)
+        employee.job_title = (
+            values.job_title.strip()
+            if values.job_title
+            else None
+        )
+        employee.hire_date = values.hire_date
+        employee.employment_status = (
+            values.employment_status
+        )
+        employee.department_id = (
+            department.id
+            if department
+            else None
+        )
+        # Assign the relationship as well as the foreign key so the same
+        # SQLAlchemy session does not return a stale cached value.
+        employee.department = department
+        employee.manager_id = values.manager_id
+
+        # Synchronize in both directions:
+        # Employed activates, Resigned deactivates.
+        self._sync_account_status(
+            user=user,
+            employment_status=values.employment_status,
+        )
+
+        self.session.commit()
+
+        self.training_repository.replace_for_employee(
+            company_id=values.company_id,
+            employee_id=employee.id,
+            items=self._training_payload(
+                values.trainings
+            ),
+        )
+
+        # Reload all joined relationships after profile, account,
+        # department, manager, and training updates.
+        self.session.expire_all()
+
+        return self.get_employee(
+            company_id=values.company_id,
+            employee_id=employee.id,
+        )
+
+    def _count_policy_history_for_user(
+        self,
+        *,
+        company_id: int,
+        user_id: int,
+    ) -> int:
+        """Count policy records that must retain their user identity."""
+
+        policy_count = self.session.scalar(
+            select(func.count(HRPolicy.id)).where(
+                HRPolicy.company_id == company_id,
+                HRPolicy.created_by_user_id == user_id,
+            )
+        ) or 0
+
+        document_count = self.session.scalar(
+            select(func.count(HRPolicyDocument.id)).where(
+                HRPolicyDocument.company_id == company_id,
+                HRPolicyDocument.uploaded_by_user_id == user_id,
+            )
+        ) or 0
+
+        return int(policy_count) + int(document_count)
+
+    def delete_employee_master_record(
+        self,
+        request: EmployeeDeleteRequest,
+        *,
+        current_user_id: int,
+    ) -> EmployeeDeletionResult:
+        """Permanently delete an employee and its linked login account.
+
+        The operation is blocked for the signed-in administrator and for
+        accounts referenced by policy history. Direct reports remain but
+        their manager assignment is cleared. Departments are preserved.
+        """
+
+        employee = self.get_employee(
+            company_id=request.company_id,
+            employee_id=request.employee_id,
+        )
+
+        employee_id = employee.id
+        employee_number = employee.employee_number.strip()
+        full_name = employee.full_name
+        linked_user_id = (
+            employee.user.id
+            if employee.user is not None
+            else None
+        )
+
+        if (
+            request.confirmation_employee_number.strip()
+            != employee_number
+        ):
+            raise ValueError(
+                "The confirmation Employee Number does not match "
+                "the selected employee."
+            )
+
+        if linked_user_id == current_user_id:
+            raise ValueError(
+                "You cannot permanently delete your own active "
+                "administrator account."
+            )
+
+        if (
+            linked_user_id is not None
+            and self._count_policy_history_for_user(
+                company_id=request.company_id,
+                user_id=linked_user_id,
+            )
+            > 0
+        ):
+            raise ValueError(
+                "This account is referenced by policy history and "
+                "cannot be permanently deleted. Change the employee "
+                "status to Resigned instead."
+            )
+
+        direct_report_ids = list(
+            self.session.scalars(
+                select(Employee.id).where(
+                    Employee.company_id == request.company_id,
+                    Employee.manager_id == employee_id,
+                )
+            ).all()
+        )
+
+        if direct_report_ids:
+            self.session.execute(
+                update(Employee)
+                .where(
+                    Employee.company_id == request.company_id,
+                    Employee.manager_id == employee_id,
+                )
+                .values(manager_id=None)
+                .execution_options(
+                    synchronize_session=False
+                )
+            )
+
+        self.session.execute(
+            delete(EmployeeTraining)
+            .where(
+                EmployeeTraining.company_id
+                == request.company_id,
+                EmployeeTraining.employee_id
+                == employee_id,
+            )
+            .execution_options(
+                synchronize_session=False
+            )
+        )
+
+        self.session.execute(
+            delete(Employee)
+            .where(
+                Employee.company_id == request.company_id,
+                Employee.id == employee_id,
+            )
+            .execution_options(
+                synchronize_session=False
+            )
+        )
+
+        if linked_user_id is not None:
+            self.session.execute(
+                delete(PasswordResetToken)
+                .where(
+                    PasswordResetToken.company_id
+                    == request.company_id,
+                    PasswordResetToken.user_id
+                    == linked_user_id,
+                )
+                .execution_options(
+                    synchronize_session=False
+                )
+            )
+
+            self.session.execute(
+                delete(User)
+                .where(
+                    User.company_id == request.company_id,
+                    User.id == linked_user_id,
+                )
+                .execution_options(
+                    synchronize_session=False
+                )
+            )
+
+        self.session.commit()
+        self.session.expire_all()
+
+        return EmployeeDeletionResult(
+            employee_id=employee_id,
+            employee_number=employee_number,
+            full_name=full_name,
+            deleted_user_id=linked_user_id,
+            cleared_manager_assignments=len(
+                direct_report_ids
+            ),
+        )
+
+    def set_user_active_status(
+        self,
+        *,
+        company_id: int,
+        user_id: int,
+        is_active: bool,
+        current_user_id: int,
+    ) -> User:
+        """Compatibility helper retained for older integrations."""
+
+        if user_id == current_user_id and not is_active:
+            raise ValueError(
+                "You cannot deactivate your own active session."
+            )
+
+        user = self.user_repository.update_active_status(
+            company_id=company_id,
+            user_id=user_id,
+            is_active=is_active,
+        )
+
+        if user is None:
+            raise ValueError(
+                "The selected user does not exist inside this company."
+            )
+
+        return user
