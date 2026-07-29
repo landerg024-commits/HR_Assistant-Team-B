@@ -166,3 +166,155 @@ def upgrade_existing_schema(engine: Engine) -> None:
                 )
             )
 
+
+
+    # Leave approval and date-based credit posting.
+    inspector = inspect(engine)
+    table_names = set(inspector.get_table_names())
+
+    if "leave_types" in table_names:
+        leave_type_columns = {
+            column["name"]
+            for column in inspector.get_columns("leave_types")
+        }
+
+        with engine.begin() as connection:
+            if (
+                "handover_plan_requirement"
+                not in leave_type_columns
+            ):
+                connection.execute(
+                    text(
+                        "ALTER TABLE leave_types "
+                        "ADD COLUMN handover_plan_requirement "
+                        "VARCHAR(20) NOT NULL DEFAULT 'optional'"
+                    )
+                )
+                connection.execute(
+                    text(
+                        "UPDATE leave_types "
+                        "SET handover_plan_requirement = "
+                        "CASE "
+                        "WHEN upper(code) IN ('VACATION', 'LWOP') "
+                        "THEN 'recommended' "
+                        "ELSE 'optional' END"
+                    )
+                )
+
+    if "leave_requests" in table_names:
+        request_columns = {
+            column["name"]
+            for column in inspector.get_columns("leave_requests")
+        }
+        datetime_sql = (
+            "TIMESTAMP WITH TIME ZONE"
+            if engine.dialect.name == "postgresql"
+            else "DATETIME"
+        )
+        boolean_sql = (
+            "BOOLEAN NOT NULL DEFAULT FALSE"
+            if engine.dialect.name == "postgresql"
+            else "BOOLEAN NOT NULL DEFAULT 0"
+        )
+        added_reservation_tracking = (
+            "reservation_posted" not in request_columns
+        )
+
+        with engine.begin() as connection:
+            additions = (
+                (
+                    "handover_plan",
+                    "TEXT",
+                ),
+                (
+                    "manager_comment",
+                    "TEXT",
+                ),
+                (
+                    "reviewed_at",
+                    datetime_sql,
+                ),
+                (
+                    "reviewed_by_user_id",
+                    "INTEGER",
+                ),
+                (
+                    "approved_at",
+                    datetime_sql,
+                ),
+                (
+                    "completed_at",
+                    datetime_sql,
+                ),
+                (
+                    "reservation_posted",
+                    boolean_sql,
+                ),
+                (
+                    "posted_working_days",
+                    "NUMERIC(8, 2) NOT NULL DEFAULT 0",
+                ),
+            )
+
+            for column_name, column_sql in additions:
+                if column_name not in request_columns:
+                    connection.execute(
+                        text(
+                            "ALTER TABLE leave_requests "
+                            f"ADD COLUMN {column_name} "
+                            f"{column_sql}"
+                        )
+                    )
+
+            # v8.5.x reserved credits immediately on submission. When this
+            # tracking field is first introduced, release those pending
+            # reservations and convert the request to the new workflow.
+            if added_reservation_tracking:
+                legacy_rows = connection.execute(
+                    text(
+                        "SELECT id, company_id, employee_id, "
+                        "leave_type_id, start_date, requested_days "
+                        "FROM leave_requests "
+                        "WHERE status = 'sent_to_manager'"
+                    )
+                ).mappings().all()
+
+                for row in legacy_rows:
+                    start_year = int(
+                        str(row["start_date"])[:4]
+                    )
+                    connection.execute(
+                        text(
+                            "UPDATE leave_balances "
+                            "SET reserved_days = CASE "
+                            "WHEN reserved_days >= :days "
+                            "THEN reserved_days - :days "
+                            "ELSE 0 END "
+                            "WHERE company_id = :company_id "
+                            "AND employee_id = :employee_id "
+                            "AND leave_type_id = :leave_type_id "
+                            "AND year = :year"
+                        ),
+                        {
+                            "days": row["requested_days"],
+                            "company_id": row["company_id"],
+                            "employee_id": row["employee_id"],
+                            "leave_type_id": row["leave_type_id"],
+                            "year": start_year,
+                        },
+                    )
+
+                connection.execute(
+                    text(
+                        "UPDATE leave_requests "
+                        "SET status = 'pending_manager_approval', "
+                        "reservation_posted = "
+                        + (
+                            "FALSE"
+                            if engine.dialect.name == "postgresql"
+                            else "0"
+                        )
+                        + ", posted_working_days = 0 "
+                        "WHERE status = 'sent_to_manager'"
+                    )
+                )

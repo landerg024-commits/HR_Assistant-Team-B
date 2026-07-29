@@ -26,6 +26,7 @@ from ui.layouts.auth_layout import (
 )
 from ui.layouts.user_layout import render_user_layout
 from ui.session_state import initialize_session_state
+from services.leave_service import LeaveService
 from services.organization_service import OrganizationService
 from ui.theme.theme_loader import apply_theme
 
@@ -48,6 +49,25 @@ def _load_company_theme_color(
     except Exception:
         # Authentication and routing remain usable if branding lookup fails.
         return DEFAULT_COMPANY_THEME_COLOR
+
+
+
+def _reconcile_leave_credits(
+    company_id: int,
+) -> None:
+    """Catch up approved leave dates whenever the app is opened."""
+
+    try:
+        with SessionFactory() as session:
+            LeaveService(
+                session
+            ).reconcile_approved_leave(
+                company_id=company_id
+            )
+    except Exception:
+        # Routing and login must remain usable if reconciliation fails.
+        # The scheduled reconciliation script can retry later.
+        return
 
 
 def main() -> None:
@@ -95,6 +115,10 @@ def main() -> None:
     if current_user is None:
         AuthSessionManager.logout()
         st.rerun()
+
+    _reconcile_leave_credits(
+        current_user.company_id
+    )
 
     apply_theme(
         primary_color=_load_company_theme_color(

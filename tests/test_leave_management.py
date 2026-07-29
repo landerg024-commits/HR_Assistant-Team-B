@@ -144,7 +144,9 @@ def test_request_is_recorded_reserved_and_emailed(tmp_path: Path) -> None:
             leave_type_id=vacation.leave_type_id,
             year=start.year,
         )
-        assert Decimal(refreshed.reserved_days) == Decimal("1.00")
+        # Submission does not reserve or deduct credits.
+        assert Decimal(refreshed.reserved_days) == Decimal("0.00")
+        assert result.request.status == "pending_manager_approval"
         assert service.notification_service.unread_count(
             company_id=seed["company"].id,
             user_id=seed["admin_user"].id,

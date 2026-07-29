@@ -3,7 +3,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Date, DateTime, ForeignKey, Numeric, String, Text, func
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Numeric, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database.base import Base, TimestampMixin
@@ -45,8 +45,13 @@ class LeaveRequest(TimestampMixin, Base):
         Numeric(8, 2), nullable=False
     )
     reason: Mapped[str] = mapped_column(Text, nullable=False)
+    handover_plan: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(
-        String(50), default="sent_to_manager", nullable=False, index=True
+        String(50),
+        default="pending_manager_approval",
+        server_default="pending_manager_approval",
+        nullable=False,
+        index=True,
     )
     manager_email: Mapped[str] = mapped_column(String(255), nullable=False)
     cc_emails_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
@@ -59,6 +64,35 @@ class LeaveRequest(TimestampMixin, Base):
     attachment_storage_path: Mapped[str | None] = mapped_column(String(700))
     attachment_mime_type: Mapped[str | None] = mapped_column(String(150))
     attachment_size_bytes: Mapped[int | None] = mapped_column()
+
+    # Manager decision and idempotent credit-posting state.
+    manager_comment: Mapped[str | None] = mapped_column(Text)
+    reviewed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    reviewed_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        index=True,
+    )
+    approved_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    reservation_posted: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default="0",
+        nullable=False,
+    )
+    posted_working_days: Mapped[Decimal] = mapped_column(
+        Numeric(8, 2),
+        default=Decimal("0.00"),
+        server_default="0",
+        nullable=False,
+    )
+
     submitted_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

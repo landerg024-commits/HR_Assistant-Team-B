@@ -1,6 +1,3 @@
-# HR_Assistant-Team-B
-Repository - Lindy-Lander
-
 # AI HR Assistant
 
 This is the base project foundation for the modular HR Assistant.
@@ -1344,4 +1341,286 @@ Company Profile provides:
 Light Mode remains fixed. Dark input surfaces, white input values, Leave
 Management, policy features, authentication, and business logic are
 unchanged.
->>>>>>> 9cc3cac (First commit: initial project setup)
+
+
+## v8.5.2 Leave Detached-Instance Fix
+
+Leave Management repository queries now eagerly load every relationship used
+after the database session closes.
+
+Covered relationships:
+
+- Leave Balance → Employee
+- Leave Balance → Employee Department
+- Leave Balance → Employee Manager
+- Leave Balance → Employee/Manager User Account
+- Leave Balance → Leave Type
+- Leave Request → Employee Department
+- Leave Request → Employee/Manager User Account
+- Leave Request → Leave Type
+
+This prevents SQLAlchemy `DetachedInstanceError` when Streamlit renders leave
+credits or request details after leaving the `SessionFactory()` context.
+
+No database migration is required. Leave calculations, email routing,
+notifications, company theme colors, policies, authentication, and employee
+records are unchanged.
+
+
+## v8.5.3 Leave Workspace Reorganization
+
+The administrator Leave Management workspace is reorganized into:
+
+```text
+Leave Overview
+Credit Management
+Leave Requests
+Leave Types & Rules
+```
+
+### Shared Leave Year
+
+The Leave Year selector is displayed once above the tabs and controls:
+
+- Leave Overview balances and metrics
+- Credit Management adjustments and history
+- Leave Requests whose leave dates overlap the selected year
+
+Requests crossing December and January appear in both affected leave years.
+
+### Leave Overview
+
+Read-only information is consolidated here:
+
+- selected-year summary metrics
+- employee leave-credit table
+- View Employee Credit Details
+- allocated, carry-over, adjustments, used, reserved, and remaining credits
+
+### Credit Management
+
+Only administrative credit actions are shown here:
+
+- employee selector
+- manual positive or negative credit adjustment
+- required adjustment reason
+- immutable credit transaction history
+
+The old `Leave Credits` tab name is removed to avoid duplicating viewing and
+management functions.
+
+Manager-routed request approval remains outside the HR Admin portal. Company
+theme colors, notifications, policies, authentication, email routing, and
+database records remain unchanged.
+
+
+## v8.5.4 Simplified Leave Management
+
+The administrator workspace is simplified into four clear areas:
+
+```text
+Overview
+Employee Leave Accounts
+Leave Requests
+Leave Rules
+```
+
+### Overview
+
+Overview is now a true monitoring dashboard and does not repeat the complete
+employee credit table or adjustment forms.
+
+It contains:
+
+- selected-year request metrics
+- employees currently on leave
+- selected-year leave activity
+- low-credit alerts
+- recent leave requests
+
+### Employee Leave Accounts
+
+All employee-specific credit work is consolidated in one place:
+
+- department filter
+- employee selector
+- available, used, and reserved totals
+- complete leave-type credit breakdown
+- manual positive or negative adjustment
+- immutable transaction history
+
+This removes the previous separation between credit viewing and credit
+management.
+
+### Leave Requests
+
+Requests remain view-only for HR/Admin and include:
+
+- department filter
+- leave-type filter
+- status filter
+- employee-name or employee-number search
+- request table
+- complete request details and attachment download
+
+Department managers remain responsible for approving or rejecting requests
+outside the HR Admin portal.
+
+### Leave Rules
+
+Leave type configuration is renamed and simplified:
+
+- Add Leave Rule
+- Edit Leave Rule
+- Save Leave Rule
+- annual credits
+- paid/unpaid
+- carry-over limit
+- attachment requirement
+- minimum notice
+- active/inactive
+
+One shared Leave Year continues to control Overview, Employee Leave Accounts,
+and Leave Requests. No database migration is required.
+
+
+## v8.5.5 Absolute Leave Credits
+
+Employee Leave Accounts no longer uses positive or negative adjustment
+numbers.
+
+The administrator now enters the exact remaining credits:
+
+```text
+Current credits: 45
+New Leave Credits: 10
+Saved result: 10
+```
+
+The value is not added to the current balance.
+
+### Updated interface
+
+- `Adjust Credits` is renamed to `Set Leave Credits`
+- `Adjustment Days` is replaced by `New Leave Credits`
+- minimum input value is zero
+- the current balance is the default input value
+- `Save Leave Credits` clearly saves the exact resulting amount
+- the help text includes a 45-to-10 example
+- internal signed adjustment arithmetic is hidden from the employee balance
+  table
+- transaction history records the previous and new balance plus the reason
+
+The service recalculates its internal adjustment component while preserving
+annual allocation, carry-over, used days, reserved days, and leave-request
+history. No database migration is required.
+
+
+## v8.5.6 Remove Leave-Credit Reason
+
+The manual reason field is removed from Employee Leave Accounts.
+
+The `Set Leave Credits` form now contains only:
+
+```text
+Leave Type
+Current Credits
+New Leave Credits
+Save Leave Credits
+```
+
+Transaction history still records:
+
+- previous balance
+- new balance
+- administrator user reference
+- date and time of the change
+
+No user-entered adjustment reason is requested or displayed. No database
+migration is required.
+
+
+## v8.6.0 Manager Approval and Leave Credit Posting
+
+### Employee Portal
+
+Leave Management now contains:
+
+```text
+My Leave Overview
+File Leave Request
+My Requests
+Pending Approvals       # assigned managers only
+Reviewed Requests       # assigned managers only
+```
+
+The request composer shows:
+
+- Leave Type and current available credits
+- Start Date and End Date
+- calculated Monday-to-Friday Working Days
+- Reason
+- Work Handover Plan / Countermeasure
+- optional PDF, DOCX, XLSX, CSV, or TXT plan file
+- automatic To: assigned manager
+- automatic CC: employee and active administrators
+
+### Handover Plan Rules
+
+Leave Rules supports:
+
+```text
+Optional
+Recommended
+Required
+```
+
+A Required rule accepts either plan text or an uploaded plan file. Vacation
+and Leave Without Pay default to Recommended. Sick and Emergency default to
+Optional because they may be unexpected.
+
+### Manager Approval
+
+The assigned manager receives:
+
+- an in-app bell notification
+- an email containing the request and handover plan
+- a login-protected link to Employee Portal Leave Management
+
+Managers can approve or reject only requests assigned to their employee
+record. HR/Admin remains view-only.
+
+### Credit Lifecycle
+
+```text
+Pending Manager Approval
+    No reservation and no deduction
+
+Approved / Scheduled
+    Requested days become Reserved
+    Available Credits decreases
+
+Approved leave date occurs
+    Date reconciliation moves elapsed days from Reserved to Used
+
+All approved leave dates completed
+    Status becomes Completed
+```
+
+Rejected requests never affect credits.
+
+### Date Reconciliation
+
+Two safeguards are included:
+
+1. Streamlit runs reconciliation whenever an authenticated user opens the app.
+2. `python scripts/reconcile_leave_credits.py` can be scheduled daily through
+   Windows Task Scheduler.
+
+Posting is idempotent. A date already posted cannot be posted twice.
+
+### Compatibility
+
+Existing v8.5.x `sent_to_manager` requests are converted to Pending Manager
+Approval during the non-destructive schema upgrade. Their old submission-time
+reservations are released. No database reset is required.

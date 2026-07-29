@@ -44,9 +44,17 @@ class LeaveType(TimestampMixin, Base):
         default=Decimal("0.00"),
         nullable=False,
     )
+    # Legacy field remains for database compatibility. New leave
+    # requests use ``handover_plan_requirement`` instead.
     requires_attachment: Mapped[bool] = mapped_column(
         Boolean,
         default=False,
+        nullable=False,
+    )
+    handover_plan_requirement: Mapped[str] = mapped_column(
+        String(20),
+        default="optional",
+        server_default="optional",
         nullable=False,
     )
     minimum_notice_days: Mapped[int] = mapped_column(

@@ -129,3 +129,33 @@ class EmployeeRepository(BaseRepository[Employee]):
         )
 
         return list(self.session.scalars(statement).all())
+
+
+    def list_direct_reports(
+        self,
+        *,
+        company_id: int,
+        manager_employee_id: int,
+    ) -> list[Employee]:
+        """Return employed workers assigned to one manager."""
+
+        statement = (
+            select(Employee)
+            .options(
+                joinedload(Employee.department),
+                joinedload(Employee.user),
+            )
+            .where(
+                Employee.company_id == company_id,
+                Employee.manager_id == manager_employee_id,
+                Employee.employment_status == "employed",
+            )
+            .order_by(
+                Employee.last_name,
+                Employee.first_name,
+            )
+        )
+
+        return list(
+            self.session.scalars(statement).unique().all()
+        )

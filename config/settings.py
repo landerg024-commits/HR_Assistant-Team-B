@@ -27,7 +27,7 @@ class Settings(BaseSettings):
 
     # Application identity and runtime behavior.
     app_name: str = "AI HR Assistant"
-    app_version: str = "0.8.5.1"
+    app_version: str = "0.8.6.0"
     environment: str = "development"
     debug: bool = True
 
