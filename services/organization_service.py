@@ -45,6 +45,44 @@ class OrganizationService:
 
         return company
 
+    def resolve_public_company(
+        self,
+        company_code: str | None,
+    ) -> Company | None:
+        """Resolve public branding without exposing user/account data.
+
+        Resolution order:
+        1. Active company matching the supplied code.
+        2. The only active company when the installation is single-company.
+        3. None, allowing the application default color and name.
+        """
+
+        normalized_code = (
+            company_code.strip().upper()
+            if company_code
+            else ""
+        )
+
+        if normalized_code:
+            company = (
+                self.company_repository.get_active_by_code(
+                    normalized_code
+                )
+            )
+
+            if company is not None:
+                return company
+
+        active_companies = (
+            self.company_repository.list_active(
+                limit=2
+            )
+        )
+
+        if len(active_companies) == 1:
+            return active_companies[0]
+
+        return None
     def update_company_name(
         self,
         values: CompanyNameUpdate,

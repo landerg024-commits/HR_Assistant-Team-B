@@ -102,7 +102,7 @@ def _employee_with_login(session, seed) -> tuple[Employee, User]:
 
 
 def _future_weekday() -> date:
-    value = date.today() + timedelta(days=5)
+    value = date.today() + timedelta(days=10)
     while value.weekday() >= 5:
         value += timedelta(days=1)
     return value
@@ -348,8 +348,8 @@ def test_date_reconciliation_moves_reserved_to_used_once(
             if item.leave_type.code == "VACATION"
         )
 
-        monday = date(2026, 8, 3)
-        tuesday = date(2026, 8, 4)
+        monday = date(2026, 8, 10)
+        tuesday = date(2026, 8, 11)
         submitted = service.submit_leave_request(
             LeaveRequestInput(
                 company_id=seed["company"].id,

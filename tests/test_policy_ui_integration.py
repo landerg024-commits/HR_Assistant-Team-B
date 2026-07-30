@@ -26,11 +26,15 @@ def test_employee_company_policies_route_is_functional() -> None:
     assert "render_employee_policies_page(current_user)" in source
 
 
-def test_chat_page_uses_policy_assistant() -> None:
-    source = _read("ui/pages/user/chat_page.py")
+def test_chat_page_uses_general_hr_assistant_with_policy_fallback() -> None:
+    chat_source = _read("ui/pages/user/chat_page.py")
+    assistant_source = _read(
+        "modules/hr_assistant/hr_assistant.py"
+    )
 
-    assert "PolicyAssistant" in source
-    assert "company_id=current_user.company_id" in source
+    assert "HRAssistant" in chat_source
+    assert "PolicyAssistant" in assistant_source
+    assert "company_id=current_user.company_id" in assistant_source
 
 
 def test_policy_feature_flag_is_enabled() -> None:

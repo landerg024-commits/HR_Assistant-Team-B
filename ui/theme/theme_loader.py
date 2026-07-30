@@ -858,6 +858,331 @@ const styleToasts = () => {
         });
 };
 
+
+const styleNotificationButton = () => {
+    /*
+       Find the actual bell popover by its visible label. This avoids
+       depending on Streamlit's internal wrapper structure.
+    */
+    parentDocument
+        .querySelectorAll(
+            '[data-testid="stPopover"] > button'
+        )
+        .forEach((button) => {
+            const label = (
+                button.innerText
+                || button.textContent
+                || ''
+            ).trim();
+
+            if (!label.includes('🔔')) {
+                return;
+            }
+
+            const hovered = button.matches(':hover');
+            const focused = (
+                button === parentDocument.activeElement
+                || button.contains(
+                    parentDocument.activeElement
+                )
+            );
+            const expanded = (
+                button.getAttribute('aria-expanded')
+                === 'true'
+            );
+            const active = (
+                hovered
+                || focused
+                || expanded
+            );
+            const background = active
+                ? softPrimary
+                : '#FFFFFF';
+            const foreground = primaryColor;
+
+            setImportant(
+                button,
+                'background',
+                background
+            );
+            setImportant(
+                button,
+                'background-color',
+                background
+            );
+            setImportant(
+                button,
+                'color',
+                foreground
+            );
+            setImportant(
+                button,
+                '-webkit-text-fill-color',
+                foreground
+            );
+            setImportant(
+                button,
+                'border',
+                `1px solid ${primaryColor}`
+            );
+            setImportant(
+                button,
+                'border-color',
+                primaryColor
+            );
+            setImportant(
+                button,
+                'box-shadow',
+                active
+                    ? `0 0 0 3px rgba(${primaryRgb}, 0.16)`
+                    : `0 6px 16px rgba(${primaryRgb}, 0.12)`
+            );
+            setImportant(
+                button,
+                'opacity',
+                '1'
+            );
+
+            button
+                .querySelectorAll(
+                    '*'
+                )
+                .forEach((element) => {
+                    setImportant(
+                        element,
+                        'color',
+                        foreground
+                    );
+                    setImportant(
+                        element,
+                        '-webkit-text-fill-color',
+                        foreground
+                    );
+                    setImportant(
+                        element,
+                        'opacity',
+                        '1'
+                    );
+
+                    if (element.tagName === 'SVG') {
+                        setImportant(
+                            element,
+                            'fill',
+                            'currentColor'
+                        );
+                        setImportant(
+                            element,
+                            'stroke',
+                            'currentColor'
+                        );
+                    }
+                });
+
+            if (
+                !button.dataset
+                    .hrNotificationVisibilityBound
+            ) {
+                button.dataset
+                    .hrNotificationVisibilityBound = 'true';
+
+                [
+                    'mouseenter',
+                    'mouseleave',
+                    'focus',
+                    'blur',
+                    'click'
+                ].forEach((eventName) => {
+                    button.addEventListener(
+                        eventName,
+                        scheduleApply
+                    );
+                });
+            }
+        });
+};
+
+
+
+const positionNotificationDropdown = () => {
+    const button = parentDocument.querySelector(
+        '.st-key-global_notification_button button'
+    );
+    const panel = parentDocument.querySelector(
+        '.st-key-notification_dropdown_panel'
+    );
+
+    if (!button || !panel) {
+        return;
+    }
+
+    const viewportWidth = (
+        parentDocument.defaultView.innerWidth
+        || parentDocument.documentElement.clientWidth
+    );
+    const viewportHeight = (
+        parentDocument.defaultView.innerHeight
+        || parentDocument.documentElement.clientHeight
+    );
+    const panelWidth = Math.min(
+        460,
+        Math.max(280, viewportWidth - 32)
+    );
+    const buttonRect = button.getBoundingClientRect();
+    const left = Math.min(
+        Math.max(16, buttonRect.right - panelWidth),
+        Math.max(16, viewportWidth - panelWidth - 16)
+    );
+    const top = Math.max(16, buttonRect.bottom + 8);
+    const maximumHeight = Math.max(
+        240,
+        viewportHeight - top - 16
+    );
+
+    setImportant(panel, 'position', 'fixed');
+    setImportant(panel, 'left', `${left}px`);
+    setImportant(panel, 'right', 'auto');
+    setImportant(panel, 'top', `${top}px`);
+    setImportant(panel, 'width', `${panelWidth}px`);
+    setImportant(panel, 'min-width', `${panelWidth}px`);
+    setImportant(panel, 'max-width', `${panelWidth}px`);
+    setImportant(panel, 'max-height', `${maximumHeight}px`);
+};
+
+
+
+const styleReadableContent = () => {
+    const containers = parentDocument.querySelectorAll(
+        '[class*="st-key-hr_assistant_message_"] '
+        + '[data-testid="stMarkdownContainer"],'
+        + '[data-testid="stChatMessage"] '
+        + '[data-testid="stMarkdownContainer"],'
+        + '[data-testid="stExpander"] '
+        + '[data-testid="stMarkdownContainer"],'
+        + '[data-testid="stAlert"] '
+        + '[data-testid="stMarkdownContainer"],'
+        + '[class*="st-key-employee_policy_content_"] '
+        + '[data-testid="stMarkdownContainer"],'
+        + '.st-key-employee_policy_assistant_answer '
+        + '[data-testid="stMarkdownContainer"],'
+        + '[data-testid="stExpander"] '
+        + '[data-testid="stText"]'
+    );
+
+    containers.forEach((container) => {
+        const readableElements = container.querySelectorAll(
+            'p,li,ul,ol,strong,b,em,i,span,pre,'
+            + 'h1,h2,h3,h4,h5,h6,blockquote,'
+            + 'table,thead,tbody,tr,th,td,'
+            + '.hr-employee-policy-content'
+        );
+
+        setImportant(
+            container,
+            'color',
+            '__TEXT_PRIMARY__'
+        );
+        setImportant(
+            container,
+            '-webkit-text-fill-color',
+            '__TEXT_PRIMARY__'
+        );
+        setImportant(
+            container,
+            'opacity',
+            '1'
+        );
+
+        readableElements.forEach((element) => {
+            setImportant(
+                element,
+                'color',
+                '__TEXT_PRIMARY__'
+            );
+            setImportant(
+                element,
+                '-webkit-text-fill-color',
+                '__TEXT_PRIMARY__'
+            );
+            setImportant(
+                element,
+                'opacity',
+                '1'
+            );
+        });
+
+        container.querySelectorAll('a').forEach((link) => {
+            setImportant(
+                link,
+                'color',
+                primaryColor
+            );
+            setImportant(
+                link,
+                '-webkit-text-fill-color',
+                primaryColor
+            );
+        });
+
+        container.querySelectorAll('code').forEach((code) => {
+            setImportant(
+                code,
+                'color',
+                '__TEXT_PRIMARY__'
+            );
+            setImportant(
+                code,
+                '-webkit-text-fill-color',
+                '__TEXT_PRIMARY__'
+            );
+            setImportant(
+                code,
+                'background-color',
+                softPrimary
+            );
+        });
+    });
+
+    parentDocument.querySelectorAll(
+        '[data-testid="stMain"] '
+        + '[data-testid="stMarkdownContainer"] li'
+    ).forEach((item) => {
+        setImportant(
+            item,
+            'color',
+            '__TEXT_PRIMARY__'
+        );
+        setImportant(
+            item,
+            '-webkit-text-fill-color',
+            '__TEXT_PRIMARY__'
+        );
+        setImportant(
+            item,
+            'opacity',
+            '1'
+        );
+
+        item.querySelectorAll('*').forEach((child) => {
+            setImportant(
+                child,
+                'color',
+                '__TEXT_PRIMARY__'
+            );
+            setImportant(
+                child,
+                '-webkit-text-fill-color',
+                '__TEXT_PRIMARY__'
+            );
+            setImportant(
+                child,
+                'opacity',
+                '1'
+            );
+        });
+    });
+};
+
+
 let frameRequested = false;
 
 const applyLightControls = () => {
@@ -868,6 +1193,9 @@ const applyLightControls = () => {
     styleTooltips();
     styleDownloadButtons();
     styleToasts();
+    styleNotificationButton();
+    positionNotificationDropdown();
+    styleReadableContent();
 };
 
             const scheduleApply = () => {
@@ -908,6 +1236,7 @@ const applyLightControls = () => {
         .replace("__PRIMARY_SOFT__", tokens["primary_soft"])
         .replace("__PRIMARY_RGB__", tokens["primary_rgb"])
         .replace("__ON_PRIMARY__", tokens["on_primary"])
+        .replace("__TEXT_PRIMARY__", tokens["text_primary"])
     )
 
     components.html(
@@ -2238,32 +2567,312 @@ button[data-testid^="stBaseButton"]:disabled * {{
 }}
 
 /* =========================================================
-   NOTIFICATION BELL — v8.5.0
+   GLOBAL NOTIFICATION CENTER — v8.7.1
 ========================================================= */
 
+/* Compact top-bar bell. */
 [data-testid="stPopover"] > button {{
+    width: auto !important;
+    min-width: 58px !important;
     min-height: 44px !important;
-    color: #10172A !important;
-    -webkit-text-fill-color: #10172A !important;
-    background: #FFFFFF !important;
-    border: 1px solid #D8DEEA !important;
+    padding: 0.55rem 0.85rem !important;
+    color: var(--hr-on-primary) !important;
+    -webkit-text-fill-color: var(--hr-on-primary) !important;
+    background: var(--hr-primary) !important;
+    background-color: var(--hr-primary) !important;
+    border: 1px solid var(--hr-primary) !important;
     border-radius: 12px !important;
-    font-weight: 700 !important;
+    font-weight: 800 !important;
+    font-variant-numeric: tabular-nums !important;
+    letter-spacing: 0.01em !important;
     box-shadow: var(--hr-shadow) !important;
 }}
 
-[data-testid="stPopover"] > button:hover,
-[data-testid="stPopover"] > button:focus-visible {{
-    color: #FFFFFF !important;
-    -webkit-text-fill-color: #FFFFFF !important;
-    background: var(--hr-primary) !important;
-    border-color: var(--hr-primary-text) !important;
+[data-testid="stPopover"] > button *,
+[data-testid="stPopover"] > button p {{
+    color: inherit !important;
+    -webkit-text-fill-color: inherit !important;
 }}
 
-[data-baseweb="popover"] {{
+[data-testid="stPopover"] > button:hover,
+[data-testid="stPopover"] > button:focus,
+[data-testid="stPopover"] > button:focus-visible,
+[data-testid="stPopover"] > button:active,
+[data-testid="stPopover"] > button[aria-expanded="true"] {{
+    color: var(--hr-on-primary) !important;
+    -webkit-text-fill-color: var(--hr-on-primary) !important;
+    background: var(--hr-primary) !important;
+    background-color: var(--hr-primary) !important;
+    border-color: var(--hr-primary) !important;
+    box-shadow:
+        0 0 0 4px rgba(var(--hr-primary-rgb), 0.18),
+        0 8px 20px rgba(var(--hr-primary-rgb), 0.22) !important;
+}}
+
+/* Scope popover styling only when it contains our notification panel.
+   Selectboxes and date pickers keep their existing dark menu styling. */
+[data-baseweb="popover"]:has(.hr-notification-panel) > div,
+[data-testid="stPopoverBody"]:has(.hr-notification-panel) {{
+    width: min(390px, calc(100vw - 32px)) !important;
+    min-width: min(390px, calc(100vw - 32px)) !important;
+    max-width: min(390px, calc(100vw - 32px)) !important;
+    max-height: 520px !important;
+    overflow-y: auto !important;
+    padding: 12px !important;
     color: #10172A !important;
+    -webkit-text-fill-color: #10172A !important;
     background: #FFFFFF !important;
     background-color: #FFFFFF !important;
+    border: 1px solid #D8DEEA !important;
+    border-radius: 16px !important;
+    box-shadow: 0 18px 46px rgba(16, 23, 42, 0.20) !important;
+    color-scheme: light !important;
+}}
+
+[data-baseweb="popover"]:has(.hr-notification-panel)
+[data-testid="stMarkdownContainer"],
+[data-testid="stPopoverBody"]:has(.hr-notification-panel)
+[data-testid="stMarkdownContainer"] {{
+    color: #10172A !important;
+    -webkit-text-fill-color: #10172A !important;
+}}
+
+.hr-notification-panel,
+.hr-notification-panel *,
+.hr-notification-card,
+.hr-notification-card *,
+.hr-notification-empty,
+.hr-notification-empty *,
+.hr-notification-list {{
+    display: block !important;
+    width: 100% !important;
+}}
+
+.hr-notification-list-label {{
+    box-sizing: border-box !important;
+    opacity: 1 !important;
+    text-shadow: none !important;
+}}
+
+.hr-notification-header {{
+    display: flex !important;
+    align-items: flex-start !important;
+    justify-content: space-between !important;
+    gap: 12px !important;
+    padding: 4px 2px 12px 2px !important;
+    border-bottom: 1px solid #E4E8F1 !important;
+}}
+
+.hr-notification-heading {{
+    color: #10172A !important;
+    -webkit-text-fill-color: #10172A !important;
+    font-size: 1rem !important;
+    font-weight: 800 !important;
+    line-height: 1.25 !important;
+}}
+
+.hr-notification-subheading {{
+    margin-top: 3px !important;
+    color: #65708A !important;
+    -webkit-text-fill-color: #65708A !important;
+    font-size: 0.77rem !important;
+    font-weight: 550 !important;
+    line-height: 1.3 !important;
+}}
+
+.hr-notification-count {{
+    flex: 0 0 auto !important;
+    padding: 4px 9px !important;
+    color: var(--hr-on-primary) !important;
+    -webkit-text-fill-color: var(--hr-on-primary) !important;
+    background: var(--hr-primary) !important;
+    background-color: var(--hr-primary) !important;
+    border: 1px solid var(--hr-primary) !important;
+    border-radius: 999px !important;
+    font-size: 0.72rem !important;
+    font-weight: 800 !important;
+    font-variant-numeric: tabular-nums !important;
+    line-height: 1.1 !important;
+}}
+
+.hr-notification-list-label {{
+    margin: 10px 2px 7px 2px !important;
+    color: #65708A !important;
+    -webkit-text-fill-color: #65708A !important;
+    font-size: 0.72rem !important;
+    font-weight: 750 !important;
+    letter-spacing: 0.04em !important;
+    text-transform: uppercase !important;
+}}
+
+.hr-notification-card {{
+    display: grid !important;
+    grid-template-columns: 38px minmax(0, 1fr) !important;
+    gap: 10px !important;
+    margin: 0 0 8px 0 !important;
+    padding: 11px !important;
+    border: 1px solid #E2E7F0 !important;
+    border-radius: 12px !important;
+    background: #FFFFFF !important;
+    background-color: #FFFFFF !important;
+}}
+
+.hr-notification-card-unread {{
+    background: var(--hr-primary-soft) !important;
+    background-color: var(--hr-primary-soft) !important;
+    border-color: rgba(var(--hr-primary-rgb), 0.24) !important;
+}}
+
+.hr-notification-card-read {{
+    background: #FFFFFF !important;
+    background-color: #FFFFFF !important;
+}}
+
+.hr-notification-card-icon {{
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 38px !important;
+    height: 38px !important;
+    color: #10172A !important;
+    -webkit-text-fill-color: #10172A !important;
+    background: #F1F4F9 !important;
+    border: 1px solid #E2E7F0 !important;
+    border-radius: 10px !important;
+    font-size: 1rem !important;
+    line-height: 1 !important;
+}}
+
+.hr-notification-card-unread
+.hr-notification-card-icon {{
+    background: #FFFFFF !important;
+    border-color: rgba(var(--hr-primary-rgb), 0.20) !important;
+}}
+
+.hr-notification-card-content {{
+    min-width: 0 !important;
+}}
+
+.hr-notification-card-meta {{
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    min-height: 14px !important;
+    gap: 8px !important;
+}}
+
+.hr-notification-category {{
+    color: var(--hr-primary-text) !important;
+    -webkit-text-fill-color: var(--hr-primary-text) !important;
+    font-size: 0.68rem !important;
+    font-weight: 800 !important;
+    line-height: 1.1 !important;
+    letter-spacing: 0.04em !important;
+    text-transform: uppercase !important;
+}}
+
+.hr-notification-unread-dot {{
+    display: inline-block !important;
+    width: 8px !important;
+    height: 8px !important;
+    flex: 0 0 8px !important;
+    background: var(--hr-primary) !important;
+    border-radius: 999px !important;
+    box-shadow: 0 0 0 3px rgba(var(--hr-primary-rgb), 0.12) !important;
+}}
+
+.hr-notification-title {{
+    margin-top: 4px !important;
+    color: #10172A !important;
+    -webkit-text-fill-color: #10172A !important;
+    font-size: 0.88rem !important;
+    font-weight: 780 !important;
+    line-height: 1.28 !important;
+    overflow-wrap: anywhere !important;
+}}
+
+.hr-notification-message {{
+    margin-top: 4px !important;
+    color: #46516B !important;
+    -webkit-text-fill-color: #46516B !important;
+    font-size: 0.79rem !important;
+    font-weight: 520 !important;
+    line-height: 1.38 !important;
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+}}
+
+.hr-notification-time {{
+    margin-top: 6px !important;
+    color: #778198 !important;
+    -webkit-text-fill-color: #778198 !important;
+    font-size: 0.69rem !important;
+    font-weight: 600 !important;
+    line-height: 1.2 !important;
+}}
+
+.hr-notification-empty {{
+    padding: 24px 16px !important;
+    text-align: center !important;
+    color: #10172A !important;
+    -webkit-text-fill-color: #10172A !important;
+    background: #F8FAFD !important;
+    background-color: #F8FAFD !important;
+    border: 1px dashed #CFD6E3 !important;
+    border-radius: 12px !important;
+}}
+
+.hr-notification-empty-icon {{
+    font-size: 1.35rem !important;
+    line-height: 1 !important;
+}}
+
+.hr-notification-empty-title {{
+    margin-top: 8px !important;
+    color: #10172A !important;
+    -webkit-text-fill-color: #10172A !important;
+    font-size: 0.9rem !important;
+    font-weight: 780 !important;
+}}
+
+.hr-notification-empty-message {{
+    margin: 5px auto 0 auto !important;
+    max-width: 300px !important;
+    color: #65708A !important;
+    -webkit-text-fill-color: #65708A !important;
+    font-size: 0.76rem !important;
+    font-weight: 520 !important;
+    line-height: 1.4 !important;
+}}
+
+/* Keep the action inside the notification popover readable. */
+[data-baseweb="popover"]:has(.hr-notification-panel)
+[data-testid="stButton"] button,
+[data-testid="stPopoverBody"]:has(.hr-notification-panel)
+[data-testid="stButton"] button {{
+    margin-top: 4px !important;
+    color: #10172A !important;
+    -webkit-text-fill-color: #10172A !important;
+    background: #FFFFFF !important;
+    background-color: #FFFFFF !important;
+    border: 1px solid #CBD3E1 !important;
+    border-radius: 10px !important;
+    font-weight: 720 !important;
+}}
+
+[data-baseweb="popover"]:has(.hr-notification-panel)
+[data-testid="stButton"] button:hover,
+[data-baseweb="popover"]:has(.hr-notification-panel)
+[data-testid="stButton"] button:focus-visible,
+[data-testid="stPopoverBody"]:has(.hr-notification-panel)
+[data-testid="stButton"] button:hover,
+[data-testid="stPopoverBody"]:has(.hr-notification-panel)
+[data-testid="stButton"] button:focus-visible {{
+    color: var(--hr-on-primary) !important;
+    -webkit-text-fill-color: var(--hr-on-primary) !important;
+    background: var(--hr-primary) !important;
+    background-color: var(--hr-primary) !important;
+    border-color: var(--hr-primary) !important;
 }}
 
 /* =========================================================
@@ -2288,8 +2897,6 @@ section[data-testid="stSidebar"] button[kind="primary"] *,
 [data-testid="stDownloadButton"] > a:focus-visible *,
 [data-testid="stDownloadButton"] > button:focus-visible,
 [data-testid="stDownloadButton"] > button:focus-visible *,
-[data-testid="stPopover"] > button:hover,
-[data-testid="stPopover"] > button:focus-visible,
 [data-baseweb="popover"] [role="option"][aria-selected="true"],
 [data-baseweb="menu"] [role="option"][aria-selected="true"] {{
     color: var(--hr-on-primary) !important;
@@ -2312,6 +2919,830 @@ section[data-testid="stSidebar"] button[kind="primary"] *,
     border-color: var(--hr-primary) !important;
     box-shadow: 0 0 0 2px var(--hr-primary-soft) !important;
 }}
+
+/* =========================================================
+   NOTIFICATION TRIGGER COMPANY THEME — v8.7.1
+   This comes after every generic accent/button rule.
+========================================================= */
+
+div[data-testid="stPopover"] > button,
+div[data-testid="stPopover"] > button:hover,
+div[data-testid="stPopover"] > button:focus,
+div[data-testid="stPopover"] > button:focus-visible,
+div[data-testid="stPopover"] > button:active,
+div[data-testid="stPopover"] > button[aria-expanded="true"] {{
+    min-width: 58px !important;
+    min-height: 44px !important;
+    color: var(--hr-on-primary) !important;
+    -webkit-text-fill-color: var(--hr-on-primary) !important;
+    background: var(--hr-primary) !important;
+    background-color: var(--hr-primary) !important;
+    border: 1px solid var(--hr-primary) !important;
+    border-radius: 12px !important;
+    font-weight: 800 !important;
+    font-variant-numeric: tabular-nums !important;
+    opacity: 1 !important;
+}}
+
+div[data-testid="stPopover"] > button:hover,
+div[data-testid="stPopover"] > button:focus,
+div[data-testid="stPopover"] > button:focus-visible,
+div[data-testid="stPopover"] > button:active,
+div[data-testid="stPopover"] > button[aria-expanded="true"] {{
+    box-shadow:
+        0 0 0 4px rgba(var(--hr-primary-rgb), 0.18),
+        0 8px 20px rgba(var(--hr-primary-rgb), 0.22) !important;
+}}
+
+div[data-testid="stPopover"] > button *,
+div[data-testid="stPopover"] > button:hover *,
+div[data-testid="stPopover"] > button:focus *,
+div[data-testid="stPopover"] > button:focus-visible *,
+div[data-testid="stPopover"] > button:active *,
+div[data-testid="stPopover"] > button[aria-expanded="true"] * {{
+    color: var(--hr-on-primary) !important;
+    -webkit-text-fill-color: var(--hr-on-primary) !important;
+    opacity: 1 !important;
+}}
+
+div[data-testid="stPopover"] > button svg,
+div[data-testid="stPopover"] > button:hover svg,
+div[data-testid="stPopover"] > button:focus svg,
+div[data-testid="stPopover"] > button:focus-visible svg,
+div[data-testid="stPopover"] > button:active svg,
+div[data-testid="stPopover"] > button[aria-expanded="true"] svg {{
+    color: var(--hr-on-primary) !important;
+    fill: currentColor !important;
+    stroke: currentColor !important;
+    opacity: 1 !important;
+}}
+
+
+/* =========================================================
+   NOTIFICATION UNREAD COMPANY THEME — v8.7.2
+   The marker is rendered directly before the Streamlit popover.
+========================================================= */
+
+.hr-notification-state-marker {{
+    display: none !important;
+}}
+
+/* No unread notification:
+   white surface, company-color bell/arrow, and subtle company border. */
+div[data-testid="stMarkdownContainer"]:has(
+    .hr-notification-state-marker[data-notification-state="empty"]
+) + div[data-testid="stPopover"] > button,
+div[data-testid="stMarkdownContainer"]:has(
+    .hr-notification-state-marker[data-notification-state="empty"]
+) + div[data-testid="stPopover"] > button:hover,
+div[data-testid="stMarkdownContainer"]:has(
+    .hr-notification-state-marker[data-notification-state="empty"]
+) + div[data-testid="stPopover"] > button:focus,
+div[data-testid="stMarkdownContainer"]:has(
+    .hr-notification-state-marker[data-notification-state="empty"]
+) + div[data-testid="stPopover"] > button:focus-visible,
+div[data-testid="stMarkdownContainer"]:has(
+    .hr-notification-state-marker[data-notification-state="empty"]
+) + div[data-testid="stPopover"] > button:active {{
+    color: var(--hr-primary) !important;
+    -webkit-text-fill-color: var(--hr-primary) !important;
+    background: #FFFFFF !important;
+    background-color: #FFFFFF !important;
+    border: 1px solid rgba(var(--hr-primary-rgb), 0.38) !important;
+}}
+
+/* Unread notification:
+   full company-color button with automatic accessible text contrast. */
+div[data-testid="stMarkdownContainer"]:has(
+    .hr-notification-state-marker[data-notification-state="unread"]
+) + div[data-testid="stPopover"] > button,
+div[data-testid="stMarkdownContainer"]:has(
+    .hr-notification-state-marker[data-notification-state="unread"]
+) + div[data-testid="stPopover"] > button:hover,
+div[data-testid="stMarkdownContainer"]:has(
+    .hr-notification-state-marker[data-notification-state="unread"]
+) + div[data-testid="stPopover"] > button:focus,
+div[data-testid="stMarkdownContainer"]:has(
+    .hr-notification-state-marker[data-notification-state="unread"]
+) + div[data-testid="stPopover"] > button:focus-visible,
+div[data-testid="stMarkdownContainer"]:has(
+    .hr-notification-state-marker[data-notification-state="unread"]
+) + div[data-testid="stPopover"] > button:active {{
+    color: var(--hr-on-primary) !important;
+    -webkit-text-fill-color: var(--hr-on-primary) !important;
+    background: var(--hr-primary) !important;
+    background-color: var(--hr-primary) !important;
+    border: 1px solid var(--hr-primary) !important;
+    box-shadow:
+        0 0 0 3px rgba(var(--hr-primary-rgb), 0.16),
+        var(--hr-shadow) !important;
+}}
+
+/* Keep all nested text, icon, count, and arrow visible. */
+div[data-testid="stMarkdownContainer"]:has(
+    .hr-notification-state-marker[data-notification-state="empty"]
+) + div[data-testid="stPopover"] > button *,
+div[data-testid="stMarkdownContainer"]:has(
+    .hr-notification-state-marker[data-notification-state="empty"]
+) + div[data-testid="stPopover"] > button svg {{
+    color: var(--hr-primary) !important;
+    -webkit-text-fill-color: var(--hr-primary) !important;
+    fill: currentColor !important;
+    stroke: currentColor !important;
+    opacity: 1 !important;
+}}
+
+div[data-testid="stMarkdownContainer"]:has(
+    .hr-notification-state-marker[data-notification-state="unread"]
+) + div[data-testid="stPopover"] > button *,
+div[data-testid="stMarkdownContainer"]:has(
+    .hr-notification-state-marker[data-notification-state="unread"]
+) + div[data-testid="stPopover"] > button svg {{
+    color: var(--hr-on-primary) !important;
+    -webkit-text-fill-color: var(--hr-on-primary) !important;
+    fill: currentColor !important;
+    stroke: currentColor !important;
+    opacity: 1 !important;
+}}
+
+/* Open state remains readable and company-themed. */
+div[data-testid="stMarkdownContainer"]:has(
+    .hr-notification-state-marker[data-notification-state="empty"]
+) + div[data-testid="stPopover"] > button[aria-expanded="true"] {{
+    color: var(--hr-primary-text) !important;
+    -webkit-text-fill-color: var(--hr-primary-text) !important;
+    background: var(--hr-primary-soft) !important;
+    background-color: var(--hr-primary-soft) !important;
+    border-color: var(--hr-primary) !important;
+}}
+
+div[data-testid="stMarkdownContainer"]:has(
+    .hr-notification-state-marker[data-notification-state="empty"]
+) + div[data-testid="stPopover"] > button[aria-expanded="true"] *,
+div[data-testid="stMarkdownContainer"]:has(
+    .hr-notification-state-marker[data-notification-state="empty"]
+) + div[data-testid="stPopover"] > button[aria-expanded="true"] svg {{
+    color: var(--hr-primary-text) !important;
+    -webkit-text-fill-color: var(--hr-primary-text) !important;
+    fill: currentColor !important;
+    stroke: currentColor !important;
+    opacity: 1 !important;
+}}
+
+div[data-testid="stMarkdownContainer"]:has(
+    .hr-notification-state-marker[data-notification-state="unread"]
+) + div[data-testid="stPopover"] > button[aria-expanded="true"] {{
+    color: var(--hr-on-primary) !important;
+    -webkit-text-fill-color: var(--hr-on-primary) !important;
+    background: var(--hr-primary) !important;
+    background-color: var(--hr-primary) !important;
+    border-color: var(--hr-primary) !important;
+}}
+
+/* Fallback for Streamlit DOM variants where the marker and popover are
+   wrapped in the same vertical block. */
+div[data-testid="stVerticalBlock"]:has(
+    .hr-notification-state-marker[data-notification-state="empty"]
+) div[data-testid="stPopover"] > button {{
+    color: var(--hr-primary) !important;
+    -webkit-text-fill-color: var(--hr-primary) !important;
+    background: #FFFFFF !important;
+    background-color: #FFFFFF !important;
+    border-color: rgba(var(--hr-primary-rgb), 0.38) !important;
+}}
+
+div[data-testid="stVerticalBlock"]:has(
+    .hr-notification-state-marker[data-notification-state="unread"]
+) div[data-testid="stPopover"] > button {{
+    color: var(--hr-on-primary) !important;
+    -webkit-text-fill-color: var(--hr-on-primary) !important;
+    background: var(--hr-primary) !important;
+    background-color: var(--hr-primary) !important;
+    border-color: var(--hr-primary) !important;
+}}
+
+div[data-testid="stVerticalBlock"]:has(
+    .hr-notification-state-marker[data-notification-state="empty"]
+) div[data-testid="stPopover"] > button *,
+div[data-testid="stVerticalBlock"]:has(
+    .hr-notification-state-marker[data-notification-state="empty"]
+) div[data-testid="stPopover"] > button svg {{
+    color: var(--hr-primary) !important;
+    -webkit-text-fill-color: var(--hr-primary) !important;
+    fill: currentColor !important;
+    stroke: currentColor !important;
+}}
+
+div[data-testid="stVerticalBlock"]:has(
+    .hr-notification-state-marker[data-notification-state="unread"]
+) div[data-testid="stPopover"] > button *,
+div[data-testid="stVerticalBlock"]:has(
+    .hr-notification-state-marker[data-notification-state="unread"]
+) div[data-testid="stPopover"] > button svg {{
+    color: var(--hr-on-primary) !important;
+    -webkit-text-fill-color: var(--hr-on-primary) !important;
+    fill: currentColor !important;
+    stroke: currentColor !important;
+}}
+
+
+/* =========================================================
+   NOTIFICATION DIRECT COMPANY THEME — v8.7.3
+   Stable keyed wrapper; does not depend on Streamlit siblings.
+========================================================= */
+
+.st-key-notification_bell_container {{
+    width: auto !important;
+    min-width: 0 !important;
+}}
+
+.st-key-notification_bell_container
+[data-testid="stVerticalBlock"] {{
+    gap: 0 !important;
+}}
+
+.st-key-notification_bell_container
+.hr-notification-state-marker {{
+    display: none !important;
+}}
+
+/* Always use the active company primary color. */
+.st-key-notification_bell_container
+[data-testid="stPopover"] > button,
+.st-key-notification_bell_container
+[data-testid="stPopover"] > button:hover,
+.st-key-notification_bell_container
+[data-testid="stPopover"] > button:focus,
+.st-key-notification_bell_container
+[data-testid="stPopover"] > button:focus-visible,
+.st-key-notification_bell_container
+[data-testid="stPopover"] > button:active,
+.st-key-notification_bell_container
+[data-testid="stPopover"] > button[aria-expanded="true"] {{
+    min-width: 54px !important;
+    min-height: 44px !important;
+    padding: 0.55rem 0.82rem !important;
+    color: var(--hr-on-primary) !important;
+    -webkit-text-fill-color: var(--hr-on-primary) !important;
+    background: var(--hr-primary) !important;
+    background-color: var(--hr-primary) !important;
+    border: 1px solid var(--hr-primary) !important;
+    border-radius: 12px !important;
+    font-weight: 800 !important;
+    box-shadow:
+        0 7px 18px rgba(var(--hr-primary-rgb), 0.20),
+        var(--hr-shadow) !important;
+    opacity: 1 !important;
+}}
+
+/* Force emoji/text/count/arrow to remain readable. */
+.st-key-notification_bell_container
+[data-testid="stPopover"] > button *,
+.st-key-notification_bell_container
+[data-testid="stPopover"] > button:hover *,
+.st-key-notification_bell_container
+[data-testid="stPopover"] > button:focus *,
+.st-key-notification_bell_container
+[data-testid="stPopover"] > button:focus-visible *,
+.st-key-notification_bell_container
+[data-testid="stPopover"] > button:active *,
+.st-key-notification_bell_container
+[data-testid="stPopover"] > button[aria-expanded="true"] * {{
+    color: var(--hr-on-primary) !important;
+    -webkit-text-fill-color: var(--hr-on-primary) !important;
+    opacity: 1 !important;
+}}
+
+.st-key-notification_bell_container
+[data-testid="stPopover"] > button svg,
+.st-key-notification_bell_container
+[data-testid="stPopover"] > button:hover svg,
+.st-key-notification_bell_container
+[data-testid="stPopover"] > button:focus svg,
+.st-key-notification_bell_container
+[data-testid="stPopover"] > button:focus-visible svg,
+.st-key-notification_bell_container
+[data-testid="stPopover"] > button:active svg,
+.st-key-notification_bell_container
+[data-testid="stPopover"] > button[aria-expanded="true"] svg {{
+    color: var(--hr-on-primary) !important;
+    fill: currentColor !important;
+    stroke: currentColor !important;
+    opacity: 1 !important;
+}}
+
+/* Hover/open remains company-themed but visually responsive. */
+.st-key-notification_bell_container
+[data-testid="stPopover"] > button:hover,
+.st-key-notification_bell_container
+[data-testid="stPopover"] > button:focus-visible,
+.st-key-notification_bell_container
+[data-testid="stPopover"] > button[aria-expanded="true"] {{
+    filter: brightness(0.92) !important;
+    box-shadow:
+        0 0 0 4px rgba(var(--hr-primary-rgb), 0.18),
+        0 9px 22px rgba(var(--hr-primary-rgb), 0.24) !important;
+}}
+
+/* Additional fallback for Streamlit versions that expose the key on
+   an ancestor rather than the immediate container. */
+div[class*="st-key-notification_bell_container"]
+[data-testid="stPopover"] > button,
+div[class*="st-key-notification_bell_container"]
+[data-testid="stPopover"] > button:hover,
+div[class*="st-key-notification_bell_container"]
+[data-testid="stPopover"] > button:focus,
+div[class*="st-key-notification_bell_container"]
+[data-testid="stPopover"] > button:focus-visible,
+div[class*="st-key-notification_bell_container"]
+[data-testid="stPopover"] > button:active,
+div[class*="st-key-notification_bell_container"]
+[data-testid="stPopover"] > button[aria-expanded="true"] {{
+    color: var(--hr-on-primary) !important;
+    -webkit-text-fill-color: var(--hr-on-primary) !important;
+    background: var(--hr-primary) !important;
+    background-color: var(--hr-primary) !important;
+    border-color: var(--hr-primary) !important;
+}}
+
+div[class*="st-key-notification_bell_container"]
+[data-testid="stPopover"] > button *,
+div[class*="st-key-notification_bell_container"]
+[data-testid="stPopover"] > button svg {{
+    color: var(--hr-on-primary) !important;
+    -webkit-text-fill-color: var(--hr-on-primary) !important;
+    fill: currentColor !important;
+    stroke: currentColor !important;
+    opacity: 1 !important;
+}}
+
+
+/* =========================================================
+   NOTIFICATION DEFAULT VISIBILITY — v8.7.4
+========================================================= */
+
+.st-key-notification_bell_container
+[data-testid="stPopover"] > button {{
+    color: var(--hr-primary) !important;
+    -webkit-text-fill-color: var(--hr-primary) !important;
+    background: #FFFFFF !important;
+    background-color: #FFFFFF !important;
+    border: 1px solid var(--hr-primary) !important;
+    opacity: 1 !important;
+}}
+
+.st-key-notification_bell_container
+[data-testid="stPopover"] > button:hover,
+.st-key-notification_bell_container
+[data-testid="stPopover"] > button:focus,
+.st-key-notification_bell_container
+[data-testid="stPopover"] > button:focus-visible,
+.st-key-notification_bell_container
+[data-testid="stPopover"] > button[aria-expanded="true"] {{
+    color: var(--hr-primary) !important;
+    -webkit-text-fill-color: var(--hr-primary) !important;
+    background: var(--hr-primary-soft) !important;
+    background-color: var(--hr-primary-soft) !important;
+    border-color: var(--hr-primary) !important;
+}}
+
+.st-key-notification_bell_container
+[data-testid="stPopover"] > button *,
+.st-key-notification_bell_container
+[data-testid="stPopover"] > button:hover *,
+.st-key-notification_bell_container
+[data-testid="stPopover"] > button:focus *,
+.st-key-notification_bell_container
+[data-testid="stPopover"] > button:focus-visible *,
+.st-key-notification_bell_container
+[data-testid="stPopover"] > button[aria-expanded="true"] * {{
+    color: var(--hr-primary) !important;
+    -webkit-text-fill-color: var(--hr-primary) !important;
+    opacity: 1 !important;
+}}
+
+.st-key-notification_bell_container
+[data-testid="stPopover"] > button svg,
+.st-key-notification_bell_container
+[data-testid="stPopover"] > button:hover svg,
+.st-key-notification_bell_container
+[data-testid="stPopover"] > button:focus svg,
+.st-key-notification_bell_container
+[data-testid="stPopover"] > button:focus-visible svg,
+.st-key-notification_bell_container
+[data-testid="stPopover"] > button[aria-expanded="true"] svg {{
+    color: var(--hr-primary) !important;
+    fill: currentColor !important;
+    stroke: currentColor !important;
+    opacity: 1 !important;
+}}
+
+
+/* =========================================================
+   STABLE NOTIFICATION BUTTON AND DIALOG — v8.7.5
+========================================================= */
+
+.st-key-global_notification_button button,
+.st-key-global_notification_button button:hover,
+.st-key-global_notification_button button:focus,
+.st-key-global_notification_button button:focus-visible,
+.st-key-global_notification_button button:active {{
+    min-width: 68px !important;
+    min-height: 44px !important;
+    padding: 0.55rem 0.85rem !important;
+    color: var(--hr-on-primary) !important;
+    -webkit-text-fill-color: var(--hr-on-primary) !important;
+    background: var(--hr-primary) !important;
+    background-color: var(--hr-primary) !important;
+    border: 1px solid var(--hr-primary) !important;
+    border-radius: 12px !important;
+    font-weight: 850 !important;
+    font-variant-numeric: tabular-nums !important;
+    opacity: 1 !important;
+    box-shadow:
+        0 6px 16px rgba(var(--hr-primary-rgb), 0.18) !important;
+}}
+
+.st-key-global_notification_button button *,
+.st-key-global_notification_button button:hover *,
+.st-key-global_notification_button button:focus *,
+.st-key-global_notification_button button:focus-visible *,
+.st-key-global_notification_button button:active * {{
+    color: var(--hr-on-primary) !important;
+    -webkit-text-fill-color: var(--hr-on-primary) !important;
+    opacity: 1 !important;
+}}
+
+.st-key-global_notification_button button:hover,
+.st-key-global_notification_button button:focus-visible {{
+    background: var(--hr-primary-hover) !important;
+    background-color: var(--hr-primary-hover) !important;
+    border-color: var(--hr-primary-hover) !important;
+    box-shadow:
+        0 0 0 4px rgba(var(--hr-primary-rgb), 0.16),
+        0 8px 18px rgba(var(--hr-primary-rgb), 0.20) !important;
+}}
+
+[data-testid="stDialog"] {{
+    color: #10172A !important;
+}}
+
+[data-testid="stDialog"] > div {{
+    background: #FFFFFF !important;
+    border-radius: 18px !important;
+}}
+
+[data-testid="stDialog"] .hr-notification-panel,
+[data-testid="stDialog"] .hr-notification-list,
+[data-testid="stDialog"] .hr-notification-card,
+[data-testid="stDialog"] .hr-notification-empty {{
+    color: #10172A !important;
+}}
+
+
+/* =========================================================
+   ANCHORED NOTIFICATION DROPDOWN — v8.7.6
+========================================================= */
+
+.st-key-notification_menu_wrapper {{
+    position: relative !important;
+    width: 100% !important;
+    overflow: visible !important;
+    z-index: 10020 !important;
+}}
+
+[data-testid="stColumn"]:has(
+    .st-key-notification_menu_wrapper
+) {{
+    position: relative !important;
+    overflow: visible !important;
+    z-index: 10020 !important;
+}}
+
+.st-key-notification_dropdown_panel {{
+    position: absolute !important;
+    top: calc(100% + 8px) !important;
+    right: 0 !important;
+    width: min(390px, calc(100vw - 32px)) !important;
+    max-height: min(540px, calc(100vh - 140px)) !important;
+    overflow-y: auto !important;
+    padding: 12px !important;
+    color: #10172A !important;
+    -webkit-text-fill-color: #10172A !important;
+    background: #FFFFFF !important;
+    background-color: #FFFFFF !important;
+    border: 1px solid #D8DEEA !important;
+    border-radius: 16px !important;
+    box-shadow: 0 18px 46px rgba(16, 23, 42, 0.22) !important;
+    z-index: 10030 !important;
+}}
+
+.st-key-notification_dropdown_panel
+[data-testid="stVerticalBlock"] {{
+    gap: 0.55rem !important;
+}}
+
+.st-key-notification_dropdown_panel
+[data-testid="stMarkdownContainer"],
+.st-key-notification_dropdown_panel
+[data-testid="stMarkdownContainer"] * {{
+    opacity: 1 !important;
+}}
+
+.st-key-notification_dropdown_panel
+[data-testid="stButton"] button {{
+    min-height: 38px !important;
+    color: #10172A !important;
+    -webkit-text-fill-color: #10172A !important;
+    background: #FFFFFF !important;
+    background-color: #FFFFFF !important;
+    border: 1px solid #CBD3E1 !important;
+    border-radius: 10px !important;
+    font-weight: 720 !important;
+}}
+
+.st-key-notification_dropdown_panel
+[data-testid="stButton"] button:hover,
+.st-key-notification_dropdown_panel
+[data-testid="stButton"] button:focus-visible {{
+    color: var(--hr-on-primary) !important;
+    -webkit-text-fill-color: var(--hr-on-primary) !important;
+    background: var(--hr-primary) !important;
+    background-color: var(--hr-primary) !important;
+    border-color: var(--hr-primary) !important;
+}}
+
+/* Keep the bell button visible in its normal/default state. */
+.st-key-global_notification_button button,
+.st-key-global_notification_button button:hover,
+.st-key-global_notification_button button:focus,
+.st-key-global_notification_button button:focus-visible,
+.st-key-global_notification_button button:active {{
+    min-width: 68px !important;
+    min-height: 44px !important;
+    color: var(--hr-on-primary) !important;
+    -webkit-text-fill-color: var(--hr-on-primary) !important;
+    background: var(--hr-primary) !important;
+    background-color: var(--hr-primary) !important;
+    border-color: var(--hr-primary) !important;
+    font-weight: 850 !important;
+    font-variant-numeric: tabular-nums !important;
+    opacity: 1 !important;
+}}
+
+.st-key-global_notification_button button *,
+.st-key-global_notification_button button:hover *,
+.st-key-global_notification_button button:focus *,
+.st-key-global_notification_button button:focus-visible *,
+.st-key-global_notification_button button:active * {{
+    color: var(--hr-on-primary) !important;
+    -webkit-text-fill-color: var(--hr-on-primary) !important;
+    opacity: 1 !important;
+}}
+
+
+/* =========================================================
+   WIDE CLICKABLE NOTIFICATIONS — v8.7.7
+========================================================= */
+
+.st-key-notification_dropdown_panel {{
+    position: fixed !important;
+    top: 128px !important;
+    right: 24px !important;
+    width: min(460px, calc(100vw - 32px)) !important;
+    min-width: min(460px, calc(100vw - 32px)) !important;
+    max-width: min(460px, calc(100vw - 32px)) !important;
+    max-height: min(620px, calc(100vh - 150px)) !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    z-index: 10030 !important;
+}}
+
+/* Clickable notification cards. */
+.st-key-notification_dropdown_panel
+div[class*="st-key-notification_item_"] {{
+    width: 100% !important;
+    margin: 0 0 9px 0 !important;
+}}
+
+.st-key-notification_dropdown_panel
+div[class*="st-key-notification_item_"]
+[data-testid="stButton"] button {{
+    display: flex !important;
+    align-items: flex-start !important;
+    justify-content: flex-start !important;
+    width: 100% !important;
+    min-height: 104px !important;
+    height: auto !important;
+    padding: 12px 14px !important;
+    color: #10172A !important;
+    -webkit-text-fill-color: #10172A !important;
+    background: #FFFFFF !important;
+    background-color: #FFFFFF !important;
+    border: 1px solid #DCE2EC !important;
+    border-radius: 12px !important;
+    box-shadow: none !important;
+    text-align: left !important;
+}}
+
+.st-key-notification_dropdown_panel
+div[class*="st-key-notification_item_unread_"]
+[data-testid="stButton"] button {{
+    background: var(--hr-primary-soft) !important;
+    background-color: var(--hr-primary-soft) !important;
+    border-color: rgba(var(--hr-primary-rgb), 0.28) !important;
+    box-shadow: inset 4px 0 0 var(--hr-primary) !important;
+}}
+
+.st-key-notification_dropdown_panel
+div[class*="st-key-notification_item_"]
+[data-testid="stButton"] button:hover,
+.st-key-notification_dropdown_panel
+div[class*="st-key-notification_item_"]
+[data-testid="stButton"] button:focus-visible {{
+    color: #10172A !important;
+    -webkit-text-fill-color: #10172A !important;
+    background: var(--hr-primary-soft) !important;
+    background-color: var(--hr-primary-soft) !important;
+    border-color: var(--hr-primary) !important;
+    box-shadow: 0 0 0 3px rgba(var(--hr-primary-rgb), 0.13) !important;
+}}
+
+.st-key-notification_dropdown_panel
+div[class*="st-key-notification_item_"]
+[data-testid="stButton"] button p {{
+    width: 100% !important;
+    margin: 0 !important;
+    color: #10172A !important;
+    -webkit-text-fill-color: #10172A !important;
+    white-space: pre-wrap !important;
+    overflow-wrap: anywhere !important;
+    word-break: normal !important;
+    text-align: left !important;
+    font-size: 0.79rem !important;
+    font-weight: 560 !important;
+    line-height: 1.42 !important;
+}}
+
+.st-key-notification_dropdown_panel
+.hr-notification-header {{
+    position: sticky !important;
+    top: -12px !important;
+    z-index: 2 !important;
+    padding-top: 12px !important;
+    background: #FFFFFF !important;
+}}
+
+@media (max-width: 760px) {{
+    .st-key-notification_dropdown_panel {{
+        top: 118px !important;
+        right: 16px !important;
+        left: 16px !important;
+        width: auto !important;
+        min-width: 0 !important;
+        max-width: none !important;
+    }}
+}}
+
+
+/* =========================================================
+   READ-ONLY CONTENT CONTRAST — v8.8.1
+========================================================= */
+
+div[class*="st-key-hr_assistant_message_"]
+[data-testid="stMarkdownContainer"],
+div[class*="st-key-hr_assistant_message_"]
+[data-testid="stMarkdownContainer"] p,
+div[class*="st-key-hr_assistant_message_"]
+[data-testid="stMarkdownContainer"] li,
+div[class*="st-key-hr_assistant_message_"]
+[data-testid="stMarkdownContainer"] li *,
+div[class*="st-key-hr_assistant_message_"]
+[data-testid="stMarkdownContainer"] strong,
+div[class*="st-key-hr_assistant_message_"]
+[data-testid="stMarkdownContainer"] span,
+div[class*="st-key-hr_assistant_message_"]
+[data-testid="stMarkdownContainer"] blockquote,
+div[class*="st-key-hr_assistant_message_"]
+[data-testid="stMarkdownContainer"] th,
+div[class*="st-key-hr_assistant_message_"]
+[data-testid="stMarkdownContainer"] td {{
+    color: var(--hr-text-primary) !important;
+    -webkit-text-fill-color: var(--hr-text-primary) !important;
+    opacity: 1 !important;
+}}
+
+[data-testid="stChatMessage"]
+[data-testid="stMarkdownContainer"] li,
+[data-testid="stChatMessage"]
+[data-testid="stMarkdownContainer"] li *,
+[data-testid="stMain"]
+[data-testid="stMarkdownContainer"] li,
+[data-testid="stMain"]
+[data-testid="stMarkdownContainer"] li *,
+[data-testid="stExpander"]
+[data-testid="stMarkdownContainer"] li,
+[data-testid="stExpander"]
+[data-testid="stMarkdownContainer"] li *,
+[data-testid="stAlert"]
+[data-testid="stMarkdownContainer"] li,
+[data-testid="stAlert"]
+[data-testid="stMarkdownContainer"] li * {{
+    color: var(--hr-text-primary) !important;
+    -webkit-text-fill-color: var(--hr-text-primary) !important;
+    opacity: 1 !important;
+}}
+
+div[class*="st-key-hr_assistant_message_"]
+[data-testid="stMarkdownContainer"] a {{
+    color: var(--hr-primary-text) !important;
+    -webkit-text-fill-color: var(--hr-primary-text) !important;
+}}
+
+div[class*="st-key-hr_assistant_message_"]
+[data-testid="stMarkdownContainer"] code {{
+    color: var(--hr-text-primary) !important;
+    -webkit-text-fill-color: var(--hr-text-primary) !important;
+    background: var(--hr-primary-soft) !important;
+    border: 1px solid rgba(var(--hr-primary-rgb), 0.16) !important;
+    border-radius: 5px !important;
+}}
+
+
+/* =========================================================
+   EMPLOYEE POLICY CONTENT CONTRAST — v8.8.2
+========================================================= */
+
+/* Exact extracted policy source text. */
+.hr-employee-policy-content,
+.hr-employee-policy-content * {{
+    color: var(--hr-text-primary) !important;
+    -webkit-text-fill-color: var(--hr-text-primary) !important;
+    opacity: 1 !important;
+}}
+
+.hr-employee-policy-content {{
+    display: block !important;
+    width: 100% !important;
+    padding: 8px 0 12px 0 !important;
+    font-family: inherit !important;
+    font-size: 0.94rem !important;
+    font-weight: 500 !important;
+    line-height: 1.62 !important;
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+    word-break: normal !important;
+    background: transparent !important;
+}}
+
+/* Stable keyed policy wrappers. */
+div[class*="st-key-employee_policy_content_"]
+[data-testid="stMarkdownContainer"],
+div[class*="st-key-employee_policy_content_"]
+[data-testid="stMarkdownContainer"] *,
+.st-key-employee_policy_assistant_answer
+[data-testid="stMarkdownContainer"],
+.st-key-employee_policy_assistant_answer
+[data-testid="stMarkdownContainer"] * {{
+    color: var(--hr-text-primary) !important;
+    -webkit-text-fill-color: var(--hr-text-primary) !important;
+    opacity: 1 !important;
+}}
+
+/* Fallback for current or future read-only st.text/pre output inside
+   policy expanders. This does not target text inputs or text areas. */
+[data-testid="stExpander"] [data-testid="stText"],
+[data-testid="stExpander"] [data-testid="stText"] *,
+[data-testid="stExpander"] pre,
+[data-testid="stExpander"] pre * {{
+    color: var(--hr-text-primary) !important;
+    -webkit-text-fill-color: var(--hr-text-primary) !important;
+    font-family: inherit !important;
+    white-space: pre-wrap !important;
+    overflow-wrap: anywhere !important;
+    opacity: 1 !important;
+}}
+
+/* Policy summaries, headings, and numbered/list content. */
+[data-testid="stExpander"]
+[data-testid="stMarkdownContainer"] p,
+[data-testid="stExpander"]
+[data-testid="stMarkdownContainer"] strong,
+[data-testid="stExpander"]
+[data-testid="stMarkdownContainer"] span,
+[data-testid="stExpander"]
+[data-testid="stMarkdownContainer"] ol,
+[data-testid="stExpander"]
+[data-testid="stMarkdownContainer"] ul,
+[data-testid="stExpander"]
+[data-testid="stMarkdownContainer"] li,
+[data-testid="stExpander"]
+[data-testid="stMarkdownContainer"] li * {{
+    color: var(--hr-text-primary) !important;
+    -webkit-text-fill-color: var(--hr-text-primary) !important;
+    opacity: 1 !important;
+}}
+
     </style>
     """
 

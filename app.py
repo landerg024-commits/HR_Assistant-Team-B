@@ -11,12 +11,19 @@ Routing:
 import streamlit as st
 
 from authentication.access_control import AccessControl
+from authentication.password_reset_service import (
+    PasswordResetService,
+)
 from authentication.session_manager import AuthSessionManager
 from config.settings import get_settings
 from core.constants import DEFAULT_COMPANY_THEME_COLOR
 from database.runtime_schema import initialize_runtime_schema
 from database.session import SessionFactory
-from ui.auth_navigation import get_auth_action
+from ui.auth_navigation import (
+    get_auth_action,
+    get_public_company_code,
+    get_reset_token,
+)
 from ui.layouts.admin_layout import render_admin_layout
 from ui.layouts.auth_layout import (
     render_forgot_password_layout,
@@ -26,9 +33,82 @@ from ui.layouts.auth_layout import (
 )
 from ui.layouts.user_layout import render_user_layout
 from ui.session_state import initialize_session_state
+from services.announcement_service import AnnouncementService
 from services.leave_service import LeaveService
 from services.organization_service import OrganizationService
 from ui.theme.theme_loader import apply_theme
+
+
+def _clean_public_company_code(
+    value: object,
+) -> str | None:
+    """Return a normalized, bounded company code."""
+
+    if not isinstance(value, str):
+        return None
+
+    cleaned = value.strip().upper()
+
+    if not cleaned or len(cleaned) > 50:
+        return None
+
+    return cleaned
+
+
+def _load_public_company_brand(
+    settings,
+    *,
+    reset_token: str = "",
+) -> tuple[str, str, str]:
+    """Resolve company name, accent, and code for public auth pages."""
+
+    try:
+        with SessionFactory() as session:
+            company = None
+
+            if reset_token:
+                company = (
+                    PasswordResetService
+                    .get_company_for_valid_token(
+                        session,
+                        reset_token,
+                    )
+                )
+
+            if company is None:
+                requested_code = (
+                    get_public_company_code()
+                    or _clean_public_company_code(
+                        st.session_state.get(
+                            "public_company_code"
+                        )
+                    )
+                    or settings.initial_company_code
+                )
+
+                company = OrganizationService(
+                    session
+                ).resolve_public_company(
+                    requested_code
+                )
+
+        if company is not None:
+            return (
+                company.name,
+                company.theme_primary_color
+                or DEFAULT_COMPANY_THEME_COLOR,
+                company.code,
+            )
+
+    except Exception:
+        # Public authentication remains usable if branding lookup fails.
+        pass
+
+    return (
+        settings.company_name,
+        DEFAULT_COMPANY_THEME_COLOR,
+        settings.initial_company_code,
+    )
 
 
 def _load_company_theme_color(
@@ -50,6 +130,23 @@ def _load_company_theme_color(
         # Authentication and routing remain usable if branding lookup fails.
         return DEFAULT_COMPANY_THEME_COLOR
 
+
+
+def _reconcile_announcements(
+    company_id: int,
+) -> None:
+    """Publish due announcements and create employee notifications."""
+
+    try:
+        with SessionFactory() as session:
+            AnnouncementService(
+                session
+            ).reconcile_publications(
+                company_id=company_id
+            )
+    except Exception:
+        # Login and routing remain usable if publication reconciliation fails.
+        return
 
 
 def _reconcile_leave_credits(
@@ -88,17 +185,40 @@ def main() -> None:
     initialize_session_state()
 
     # Forgot/reset pages remain public even when a stale browser cookie
-    # exists. Token validation still occurs inside the reset service.
+    # exists. Their branding is resolved before authentication.
     auth_action = get_auth_action()
+    reset_token = (
+        get_reset_token()
+        if auth_action == "reset"
+        else ""
+    )
+    (
+        public_company_name,
+        public_primary_color,
+        public_company_code,
+    ) = _load_public_company_brand(
+        settings,
+        reset_token=reset_token,
+    )
 
     if auth_action == "forgot":
-        apply_theme()
-        render_forgot_password_layout(settings)
+        apply_theme(
+            primary_color=public_primary_color
+        )
+        render_forgot_password_layout(
+            settings,
+            company_name=public_company_name,
+        )
         return
 
     if auth_action == "reset":
-        apply_theme()
-        render_reset_password_layout(settings)
+        apply_theme(
+            primary_color=public_primary_color
+        )
+        render_reset_password_layout(
+            settings,
+            company_name=public_company_name,
+        )
         return
 
     # Browser refresh creates a new Streamlit session. Restore the
@@ -106,8 +226,14 @@ def main() -> None:
     AuthSessionManager.restore_from_cookie()
 
     if not AuthSessionManager.is_authenticated():
-        apply_theme()
-        render_login_layout(settings)
+        apply_theme(
+            primary_color=public_primary_color
+        )
+        render_login_layout(
+            settings,
+            company_name=public_company_name,
+            default_company_code=public_company_code,
+        )
         return
 
     current_user = AuthSessionManager.get_current_user()
@@ -116,6 +242,9 @@ def main() -> None:
         AuthSessionManager.logout()
         st.rerun()
 
+    _reconcile_announcements(
+        current_user.company_id
+    )
     _reconcile_leave_credits(
         current_user.company_id
     )
@@ -161,7 +290,7 @@ def main() -> None:
         and not AccessControl.is_admin(current_user)
     ):
         st.session_state.portal_mode = "employee"
-        st.session_state.current_page = "Chat Assistant"
+        st.session_state.current_page = "Dashboard"
         portal_mode = "employee"
 
     if (

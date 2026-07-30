@@ -151,3 +151,26 @@ class UserRepository(BaseRepository[User]):
         self.session.commit()
         self.session.refresh(user)
         return user
+
+
+    def list_active_ids(
+        self,
+        *,
+        company_id: int,
+        exclude_user_id: int | None = None,
+    ) -> list[int]:
+        """Return active account IDs for company-wide notifications."""
+
+        statement = select(User.id).where(
+            User.company_id == company_id,
+            User.is_active.is_(True),
+        )
+
+        if exclude_user_id is not None:
+            statement = statement.where(
+                User.id != exclude_user_id
+            )
+
+        return list(
+            self.session.scalars(statement).all()
+        )

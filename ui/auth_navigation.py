@@ -7,6 +7,7 @@ import streamlit as st
 
 AUTH_ACTION_KEY = "auth"
 RESET_TOKEN_KEY = "token"
+PUBLIC_COMPANY_KEY = "company"
 VALID_AUTH_ACTIONS = {
     "forgot",
     "reset",
@@ -47,6 +48,19 @@ def get_auth_action() -> str | None:
         if action in VALID_AUTH_ACTIONS
         else None
     )
+
+
+def get_public_company_code() -> str | None:
+    """Return a bounded company code used only for public branding."""
+
+    value = _clean_value(
+        st.query_params.get(
+            PUBLIC_COMPANY_KEY
+        ),
+        max_length=50,
+    )
+
+    return value.upper() if value else None
 
 
 def get_reset_token() -> str:

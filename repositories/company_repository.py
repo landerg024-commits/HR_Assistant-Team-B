@@ -4,7 +4,7 @@ Company code is the stable tenant identifier. Company name may change,
 but the code should remain unchanged after company creation.
 """
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from models.company import Company
@@ -24,6 +24,43 @@ class CompanyRepository(BaseRepository[Company]):
             select(Company).where(Company.code == code)
         )
 
+    def get_active_by_code(
+        self,
+        code: str,
+    ) -> Company | None:
+        """Return an active company using a case-insensitive code."""
+
+        normalized_code = code.strip().upper()
+
+        if not normalized_code:
+            return None
+
+        return self.session.scalar(
+            select(Company).where(
+                func.upper(Company.code) == normalized_code,
+                Company.is_active.is_(True),
+            )
+        )
+
+    def list_active(
+        self,
+        *,
+        limit: int | None = None,
+    ) -> list[Company]:
+        """Return active companies for safe public-brand resolution."""
+
+        statement = (
+            select(Company)
+            .where(Company.is_active.is_(True))
+            .order_by(Company.id)
+        )
+
+        if limit is not None:
+            statement = statement.limit(limit)
+
+        return list(
+            self.session.scalars(statement).all()
+        )
     def update_name(
         self,
         *,

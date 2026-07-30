@@ -46,7 +46,7 @@ def test_app_blocks_admin_portal_for_non_admin_user() -> None:
         in source
     )
     assert (
-        'st.session_state.current_page = "Chat Assistant"'
+        'st.session_state.current_page = "Dashboard"'
         in source
     )
 

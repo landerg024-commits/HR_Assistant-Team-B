@@ -1,4 +1,4 @@
-"""In-app notification business logic for the top-bar bell."""
+"""Generic in-app notifications shared by every HR module."""
 
 from sqlalchemy.orm import Session
 
@@ -7,7 +7,12 @@ from repositories.notification_repository import NotificationRepository
 
 
 class NotificationService:
-    """Create, read, and mark user notifications."""
+    """Create, read, and mark company/user-scoped notifications.
+
+    ``event_type`` is intentionally generic. Leave, policies, training,
+    employee/account, security, integration, and future HR modules use the
+    same notification center.
+    """
 
     def __init__(self, session: Session) -> None:
         self.session = session
@@ -32,6 +37,21 @@ class NotificationService:
 
     def list_recent(self, *, company_id: int, user_id: int, limit: int = 10):
         return self.repository.list_recent(company_id=company_id, user_id=user_id, limit=limit)
+
+    def mark_read(
+        self,
+        *,
+        company_id: int,
+        user_id: int,
+        notification_id: int,
+    ) -> int:
+        """Mark one notification as read after it is opened."""
+
+        return self.repository.mark_read(
+            company_id=company_id,
+            user_id=user_id,
+            notification_id=notification_id,
+        )
 
     def mark_all_read(self, *, company_id: int, user_id: int) -> int:
         return self.repository.mark_all_read(company_id=company_id, user_id=user_id)

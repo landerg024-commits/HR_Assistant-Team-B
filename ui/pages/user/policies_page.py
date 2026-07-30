@@ -1,5 +1,7 @@
 """Employee browser for published uploaded policy files."""
 
+import html
+
 import streamlit as st
 
 from authentication.current_user import AuthenticatedUser
@@ -32,6 +34,24 @@ def _source_caption(source) -> str:
         )
 
     return " · ".join(parts)
+
+
+def _policy_content_html(value: str) -> str:
+    """Escape source text and preserve line breaks on a light surface."""
+
+    escaped = (
+        html.escape(value or "")
+        .replace("\r\n", "\n")
+        .replace("\r", "\n")
+        .replace("\n", "<br>")
+    )
+
+    return (
+        '<div class="hr-employee-policy-content" '
+        'role="document">'
+        f"{escaped}"
+        "</div>"
+    )
 
 
 def render_employee_policies_page(
@@ -120,8 +140,17 @@ def render_employee_policies_page(
                         f"**Summary:** {policy.summary}"
                     )
 
-                # Display the extracted source text, not an AI rewrite.
-                st.text(policy.content)
+                # Display the exact extracted source text safely while
+                # preserving line breaks and readable Light Mode contrast.
+                with st.container(
+                    key=f"employee_policy_content_{policy.id}",
+                ):
+                    st.markdown(
+                        _policy_content_html(
+                            policy.content
+                        ),
+                        unsafe_allow_html=True,
+                    )
 
     st.subheader("Download Approved Source File")
 
@@ -193,7 +222,11 @@ def render_employee_policies_page(
             )
 
         st.markdown("### Answer")
-        st.write(response.answer)
+
+        with st.container(
+            key="employee_policy_assistant_answer",
+        ):
+            st.markdown(response.answer)
 
         if response.sources:
             st.markdown("**Sources**")

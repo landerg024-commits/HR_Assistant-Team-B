@@ -15,15 +15,20 @@ from ui.pages.authentication.reset_password_page import (
 )
 
 
-def render_login_layout(settings: Settings) -> None:
-    """Render branding plus the login form."""
+def render_login_layout(
+    settings: Settings,
+    *,
+    company_name: str,
+    default_company_code: str,
+) -> None:
+    """Render company-branded login and account form."""
 
     render_auth_sidebar(
         assistant_name=settings.assistant_name,
-        company_name=settings.company_name,
+        company_name=company_name,
     )
     render_login_page(
-        default_company_code=settings.initial_company_code
+        default_company_code=default_company_code
     )
 
 
@@ -43,23 +48,27 @@ def render_password_change_layout(
 
 def render_forgot_password_layout(
     settings: Settings,
+    *,
+    company_name: str,
 ) -> None:
-    """Render branding and the public reset-request page."""
+    """Render company-branded public reset-request page."""
 
     render_auth_sidebar(
         assistant_name=settings.assistant_name,
-        company_name=settings.company_name,
+        company_name=company_name,
     )
     render_forgot_password_page()
 
 
 def render_reset_password_layout(
     settings: Settings,
+    *,
+    company_name: str,
 ) -> None:
-    """Render branding and the public new-password page."""
+    """Render company-branded public new-password page."""
 
     render_auth_sidebar(
         assistant_name=settings.assistant_name,
-        company_name=settings.company_name,
+        company_name=company_name,
     )
     render_reset_password_page()

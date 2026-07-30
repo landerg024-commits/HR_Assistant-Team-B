@@ -1,5 +1,6 @@
 """Register all SQLAlchemy models."""
 
+from models.announcement import Announcement
 from models.company import Company
 from models.department import Department
 from models.employee import Employee
@@ -17,6 +18,7 @@ from models.role import Role
 from models.user import User
 
 __all__ = [
+    "Announcement",
     "Company",
     "Department",
     "Employee",

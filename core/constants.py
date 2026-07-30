@@ -1,7 +1,7 @@
 """Shared application constants."""
 
 SUPPORTED_THEMES = ("light",)
-DEFAULT_PAGE = "Chat Assistant"
+DEFAULT_PAGE = "Dashboard"
 DEFAULT_COMPANY_THEME_COLOR = "#4338E8"
 
 SYSTEM_ROLES = (
@@ -21,10 +21,10 @@ SYSTEM_ROLE_DESCRIPTIONS = {
 }
 
 USER_NAVIGATION = (
-    "Chat Assistant",
     "Dashboard",
-    "My Requests",
+    "Chat Assistant",
     "Leave Management",
+    "My Requests",
     "My Documents",
     "Company Policies",
     "Benefits",

@@ -13,6 +13,9 @@ from ui.pages.admin.admin_dashboard_page import (
 from ui.pages.admin.admin_placeholder_page import (
     render_admin_placeholder_page,
 )
+from ui.pages.admin.announcements_page import (
+    render_admin_announcements_page,
+)
 from ui.pages.admin.company_page import render_company_page
 from ui.pages.admin.employees_page import render_employees_page
 from ui.pages.admin.policies_page import render_admin_policies_page
@@ -51,6 +54,8 @@ def render_admin_layout(
         render_admin_policies_page(current_user)
     elif page == "Leave Management":
         render_admin_leave_management_page(current_user)
+    elif page == "Announcements":
+        render_admin_announcements_page(current_user)
     elif page == "Integrations":
         render_integrations_page(current_user)
     else:

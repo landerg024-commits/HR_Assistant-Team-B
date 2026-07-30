@@ -7,6 +7,7 @@ still checked by AccessControl before an admin page is rendered.
 
 from typing import Any
 
+from core.constants import DEFAULT_PAGE
 
 
 PORTAL_QUERY_KEY = "portal"
@@ -58,7 +59,7 @@ def initialize_navigation_state() -> None:
 
     if "current_page" not in st.session_state:
         st.session_state.current_page = (
-            query_page or "Chat Assistant"
+            query_page or DEFAULT_PAGE
         )
 
 
@@ -79,7 +80,7 @@ def set_navigation_state(
     normalized_page = (
         current_page.strip()[:100]
         if current_page.strip()
-        else "Chat Assistant"
+        else DEFAULT_PAGE
     )
 
     st.session_state.portal_mode = normalized_portal
@@ -108,4 +109,4 @@ def clear_navigation_state() -> None:
             del st.query_params[key]
 
     st.session_state.portal_mode = "employee"
-    st.session_state.current_page = "Chat Assistant"
+    st.session_state.current_page = DEFAULT_PAGE

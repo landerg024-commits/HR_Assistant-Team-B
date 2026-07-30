@@ -81,7 +81,7 @@ def render_admin_sidebar(
     ):
         set_navigation_state(
             portal_mode="employee",
-            current_page="Chat Assistant",
+            current_page="Dashboard",
         )
         st.rerun()
 

@@ -22,6 +22,7 @@ def test_employee_leave_page_is_routed() -> None:
 def test_notification_bell_has_unread_count_and_mark_read() -> None:
     source = (ROOT / "ui/components/topbar.py").read_text(encoding="utf-8")
     assert 'label = f"🔔 {unread}"' in source
+    assert 'key="notification_dropdown_panel"' in source
     assert '"Mark All as Read"' in source
     assert "NotificationService" in source
 

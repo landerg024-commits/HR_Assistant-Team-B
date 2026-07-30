@@ -27,7 +27,7 @@ class Settings(BaseSettings):
 
     # Application identity and runtime behavior.
     app_name: str = "AI HR Assistant"
-    app_version: str = "0.8.6.0"
+    app_version: str = "0.8.8.3"
     environment: str = "development"
     debug: bool = True
 
@@ -64,6 +64,10 @@ class Settings(BaseSettings):
     # Leave-request supporting documents.
     leave_attachment_dir: str = "data/uploads/leave_requests"
     leave_attachment_max_mb: int = 10
+
+    # Company announcement cover images.
+    announcement_upload_dir: str = "data/uploads/announcements"
+    announcement_upload_max_mb: int = 5
 
     display_timezone: str = "Asia/Manila"
 

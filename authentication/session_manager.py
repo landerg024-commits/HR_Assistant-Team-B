@@ -35,6 +35,17 @@ class AuthSessionManager:
     # immediately after explicit logout.
     LOGOUT_PENDING_KEY = "_auth_logout_pending"
 
+    # Private HR Assistant state must not cross authenticated accounts.
+    HR_CHAT_STATE_PREFIXES = (
+        "hr_assistant_chat_messages__",
+        "hr_assistant_chat_input__",
+        "new_hr_assistant_conversation__",
+    )
+    HR_CHAT_UNSCOPED_KEYS = {
+        "hr_assistant_chat_messages",
+        "policy_chat_messages",
+    }
+
     @classmethod
     def initialize(cls) -> None:
         """Create required keys for a new Streamlit browser session."""
@@ -56,6 +67,49 @@ class AuthSessionManager:
             False,
         )
 
+    @staticmethod
+    def _identity_from_session_values(
+        values,
+    ) -> tuple[int, int] | None:
+        """Return company/user identity from stored safe session values."""
+
+        if not isinstance(values, dict):
+            return None
+
+        try:
+            return (
+                int(values["company_id"]),
+                int(values["user_id"]),
+            )
+        except (
+            KeyError,
+            TypeError,
+            ValueError,
+        ):
+            return None
+
+    @classmethod
+    def _clear_hr_assistant_browser_state(
+        cls,
+    ) -> None:
+        """Remove private and legacy chat data from this browser session."""
+
+        for key in list(
+            st.session_state.keys()
+        ):
+            if (
+                key in cls.HR_CHAT_UNSCOPED_KEYS
+                or any(
+                    str(key).startswith(prefix)
+                    for prefix
+                    in cls.HR_CHAT_STATE_PREFIXES
+                )
+            ):
+                st.session_state.pop(
+                    key,
+                    None,
+                )
+
     @classmethod
     def _save_session(
         cls,
@@ -64,10 +118,36 @@ class AuthSessionManager:
     ) -> None:
         """Store safe user data in the current Streamlit session."""
 
+        previous_identity = cls._identity_from_session_values(
+            st.session_state.get(
+                cls.USER_KEY
+            )
+        )
+        current_identity = (
+            user.company_id,
+            user.user_id,
+        )
+
+        if (
+            previous_identity is not None
+            and previous_identity != current_identity
+        ):
+            cls._clear_hr_assistant_browser_state()
+
+        # Remove legacy unscoped values even when the same user is restored.
+        for key in cls.HR_CHAT_UNSCOPED_KEYS:
+            st.session_state.pop(
+                key,
+                None,
+            )
+
         st.session_state[cls.AUTHENTICATED_KEY] = True
         st.session_state[cls.USER_KEY] = user.to_session_dict()
         st.session_state[cls.TOKEN_KEY] = signed_token
         st.session_state[cls.LOGOUT_PENDING_KEY] = False
+        st.session_state[
+            "public_company_code"
+        ] = user.company_code
 
     @classmethod
     def complete_login(
@@ -150,7 +230,19 @@ class AuthSessionManager:
 
     @classmethod
     def logout(cls) -> None:
-        """Clear state, remove the cookie, and open the login page."""
+        """Clear authentication while preserving company branding."""
+
+        current_user = cls.get_current_user()
+
+        if current_user is not None:
+            st.session_state[
+                "public_company_code"
+            ] = current_user.company_code
+            st.query_params[
+                "company"
+            ] = current_user.company_code
+
+        cls._clear_hr_assistant_browser_state()
 
         st.session_state[cls.AUTHENTICATED_KEY] = False
         st.session_state[cls.USER_KEY] = None
@@ -167,6 +259,7 @@ class AuthSessionManager:
     def clear_after_password_reset(cls) -> None:
         """Clear this browser session after an external password reset."""
 
+        cls._clear_hr_assistant_browser_state()
         cls._clear_local_session()
         st.session_state[cls.LOGOUT_PENDING_KEY] = False
         clear_navigation_state()

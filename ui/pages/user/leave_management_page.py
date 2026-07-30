@@ -891,6 +891,20 @@ def _render_reviewed_requests(
     )
 
 
+def _assistant_leave_view() -> str | None:
+    """Return a safe direct view requested by the HR Assistant."""
+
+    value = st.query_params.get("leave_view")
+
+    if isinstance(value, (list, tuple)):
+        value = value[0] if value else None
+
+    if value in {"overview", "file", "requests"}:
+        return str(value)
+
+    return None
+
+
 def render_employee_leave_management_page(
     current_user: AuthenticatedUser,
 ) -> None:
@@ -923,6 +937,26 @@ def render_employee_leave_management_page(
             company_id=current_user.company_id,
             employee_id=current_user.employee_id,
         )
+
+    direct_view = _assistant_leave_view()
+
+    if st.session_state.get("current_page") == "My Requests":
+        direct_view = "requests"
+
+    if direct_view == "overview":
+        st.info("Opened from HR Assistant: Leave Credit Details")
+        _render_balances(current_user)
+        return
+
+    if direct_view == "file":
+        st.info("Opened from HR Assistant: File Leave Request")
+        _render_submit(current_user)
+        return
+
+    if direct_view == "requests":
+        st.info("Opened from HR Assistant: My Leave Requests")
+        _render_requests(current_user)
+        return
 
     labels = [
         "My Leave Overview",

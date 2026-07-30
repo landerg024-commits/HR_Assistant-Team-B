@@ -26,6 +26,7 @@ from integrations.email.email_sender import (
     build_email_sender,
 )
 from models.password_reset_token import PasswordResetToken
+from repositories.company_repository import CompanyRepository
 from repositories.password_reset_token_repository import (
     PasswordResetTokenRepository,
 )
@@ -103,6 +104,8 @@ class PasswordResetService:
     def _build_reset_link(
         self,
         raw_token: str,
+        *,
+        company_code: str,
     ) -> str:
         """Build the public reset URL sent to the employee."""
 
@@ -116,6 +119,7 @@ class PasswordResetService:
             {
                 "auth": "reset",
                 "token": raw_token,
+                "company": company_code,
             }
         )
 
@@ -243,7 +247,10 @@ class PasswordResetService:
         self.session.commit()
         self.session.refresh(reset_record)
 
-        reset_link = self._build_reset_link(raw_token)
+        reset_link = self._build_reset_link(
+            raw_token,
+            company_code=user.company.code,
+        )
         message = self._build_reset_email(
             company_name=user.company.name,
             username=user.username,
@@ -320,6 +327,50 @@ class PasswordResetService:
 
         return record, user
 
+    @classmethod
+    def get_company_for_valid_token(
+        cls,
+        session: Session,
+        raw_token: str,
+    ):
+        """Return the active company bound to a valid reset token.
+
+        This is used only for public-page branding. It does not expose the
+        account, email, username, or password-reset record.
+        """
+
+        if (
+            not raw_token
+            or len(raw_token) > 512
+        ):
+            return None
+
+        record = PasswordResetTokenRepository(
+            session
+        ).get_by_hash(
+            cls._token_hash(raw_token),
+            for_update=False,
+        )
+
+        now = cls._now()
+
+        if (
+            record is None
+            or record.used_at is not None
+            or record.revoked_at is not None
+            or cls._as_utc(record.expires_at) <= now
+            or record.delivery_status != "sent"
+        ):
+            return None
+
+        company = CompanyRepository(
+            session
+        ).get_by_id(record.company_id)
+
+        if company is None or not company.is_active:
+            return None
+
+        return company
     def is_token_valid(
         self,
         raw_token: str,

@@ -1624,3 +1624,551 @@ Posting is idempotent. A date already posted cannot be posted twice.
 Existing v8.5.x `sent_to_manager` requests are converted to Pending Manager
 Approval during the non-destructive schema upgrade. Their old submission-time
 reservations are released. No database reset is required.
+
+
+## v8.6.1 Global Notification UI
+
+The top-bar bell is a global notification center, not a leave-only feature.
+
+### Readability
+
+The popover now uses:
+
+- a fixed white notification surface
+- dark high-contrast heading, title, message, and timestamp text
+- compact notification cards
+- unread soft-accent background and dot
+- a readable empty state
+- a clear unread count
+- a compact bell button
+- responsive width and scrollable recent-notification list
+
+### Generic categories
+
+The UI automatically labels notification events as:
+
+```text
+Leave
+Policy
+Training
+Employee
+Security
+System
+General
+```
+
+The notification model and service remain generic and company/user scoped.
+Leave is currently the first fully connected workflow. Policy, training,
+employee/account, security, and other modules can publish events through the
+same `NotificationService.create(...)` method as those workflows are wired.
+
+No database migration is required.
+
+
+## v8.6.2 Notification Trigger and Render Fix
+
+This UI patch fixes three notification-center problems:
+
+1. The bell no longer changes to an unreadable black or mismatched state.
+2. The bell and arrow remain visible during normal, hover, focus, click, and
+   open states.
+3. `Mark All as Read` no longer exposes raw HTML tags.
+
+### Bell states
+
+```text
+Normal
+White surface
+Dark visible bell and arrow
+
+Hover / Focus / Open
+Soft company accent surface
+Dark visible bell and arrow
+Company accent border
+```
+
+### Notification rendering
+
+All recent notification cards are joined into one contiguous HTML block before
+being passed to Streamlit. This prevents Markdown from interpreting indented
+HTML as a code block during the read-state rerun.
+
+The notification center remains system-wide. No database migration is
+required.
+
+
+## v8.6.3 Public Company Branding
+
+The saved company Primary Accent Color now applies before and after login.
+
+### Covered pages
+
+```text
+Login
+Forgot Password
+Reset Password
+Mandatory First Password Change
+Administration Portal
+Employee Portal
+```
+
+### Login behavior
+
+- The Company Code field is outside the credential form so it can refresh
+  public branding without submitting a username or password.
+- Entering a valid company code updates the login accent and preserves the
+  code in the browser URL/session.
+- A single-company installation automatically uses its saved company color.
+- A multi-company installation uses the matched company code.
+- Logout preserves the current company code so the user returns to the same
+  branded login page.
+
+### Password reset
+
+Reset links now include the company code. A valid reset token can also resolve
+its company directly, so the Reset Password page uses the correct company
+name and accent even when opened in a new browser.
+
+The Forgot Password form remains email-only and does not ask for company code.
+
+No database migration is required.
+
+
+## v8.7.0 Announcements and Employee Dashboard
+
+### Admin Portal — Announcements
+
+Administrators can publish proper company communications with:
+
+```text
+Announcement Title
+Category
+Short Summary
+Full Announcement
+Optional Cover Image
+Publish Date
+Optional Expiry Date
+Pin on Employee Dashboard
+Save as Draft
+Publish / Schedule
+```
+
+Supported categories:
+
+```text
+Company Announcement
+Company Activity
+Event
+Reminder
+HR Update
+Policy Update
+Emergency Notice
+```
+
+Cover images support JPG, JPEG, PNG, and WEBP up to the configured
+`ANNOUNCEMENT_UPLOAD_MAX_MB` limit.
+
+The module includes:
+
+- lifecycle metrics
+- complete announcement table
+- employee-view preview
+- draft creation
+- scheduled publishing
+- editing and image replacement
+- archive and restore-to-draft
+- pinned announcements
+- automatic employee notifications
+
+### Employee Portal — Dashboard First
+
+`Dashboard` is now the first employee navigation item and the default page
+after employee login or when an administrator switches to Employee Portal.
+
+The dashboard contains:
+
+- featured pinned announcement
+- latest company updates
+- recent company activities and notices
+- full announcement expanders
+- View All Company Announcements
+- quick access to Leave Management, Company Policies, and HR Assistant
+
+A searchable `Company Announcements` page provides the complete active archive.
+
+### Dissemination
+
+When a post becomes active, every active company user except the publishing
+administrator receives an in-app global notification. Scheduled announcements
+are reconciled whenever the app opens and through:
+
+```powershell
+python scripts/reconcile_announcements.py
+```
+
+Expired posts automatically disappear from the Employee Portal while
+remaining available to administrators.
+
+### Storage and database
+
+Announcement images are stored privately under:
+
+```text
+data/uploads/announcements/
+```
+
+The new announcement table is created automatically without resetting the
+existing database.
+
+
+## v8.7.1 Notification Theme Contrast
+
+The notification bell and unread number now follow the saved company Primary
+Accent Color in normal, hover, focus, active, and open states. The text color
+uses the automatically calculated `--hr-on-primary` contrast value, so light
+company colors use dark text and dark company colors use white text. The unread
+count inside the notification panel follows the same branding. No database
+migration is required.
+
+
+## v8.7.2 Notification Unread Company Theme
+
+The notification button now has two deliberate visual states:
+
+```text
+No unread notification
+- white button
+- company-color bell and arrow
+- subtle company-color border
+
+Unread notification
+- full company primary-color button
+- automatic accessible black/white icon and count
+- visible focus ring
+```
+
+The button renders an explicit unread/empty state marker so CSS does not need
+to guess from the visible label. This also supports Streamlit DOM variants
+through a fallback selector.
+
+The company theme applies to the normal, hover, focus, active, and open states.
+No database migration is required.
+
+
+## v8.7.3 Notification Direct Company Theme
+
+The notification button is now placed inside a keyed Streamlit container:
+
+```text
+notification_bell_container
+```
+
+This gives the theme a stable selector and avoids relying on Streamlit's
+changing sibling/wrapper structure.
+
+The notification button now always uses:
+
+```text
+Background: Company Primary Accent Color
+Bell / Unread Number / Arrow: Automatic Accessible Contrast
+Hover / Focus / Open: Company-color responsive state
+```
+
+This applies whether the unread count is zero or greater than zero. The
+button no longer falls back to the dark form-control color.
+
+No database migration is required.
+
+
+## v8.7.4 Notification Default Visibility
+
+The notification button is readable before hover:
+
+```text
+Default
+- white background
+- company-color bell
+- company-color unread number
+- company-color arrow
+
+Hover / Focus / Open
+- soft company-color background
+- bell, unread number, and arrow remain visible
+```
+
+A browser-side MutationObserver locates the actual Streamlit popover button by
+its bell label and reapplies inline `!important` styles after every rerender.
+This prevents later dark BaseWeb button styles from hiding the unread count.
+
+No database migration is required.
+
+
+## v8.7.5 Notification, Announcement Archive, and Merged Dashboard
+
+### Notification
+
+The notification indicator no longer uses `st.popover`.
+
+```text
+Default state
+- company primary-color button
+- visible bell
+- visible unread count, including zero
+- no hover required
+
+Click
+- opens a Notifications dialog
+- recent notification cards
+- Mark All as Read
+```
+
+### Announcement Delete
+
+`Delete Announcement` is a soft-delete action:
+
+```text
+Delete Announcement
+→ Status becomes Archived
+→ Removed from Employee Dashboard
+→ Record and image remain stored
+→ Can be restored as Draft
+```
+
+The Admin Portal includes a dedicated Archive tab.
+
+### Employee Portal
+
+Dashboard and Company Announcements are merged into one page.
+
+```text
+Main wide area
+- category filter
+- announcement search
+- featured pinned announcements
+- latest active announcements
+
+Compact right column
+- Leave Management
+- Company Policies
+- HR Assistant
+```
+
+The separate Company Announcements sidebar item is removed. Old saved URLs are
+automatically rendered through Dashboard.
+
+No database migration is required.
+
+
+## v8.7.6 Notification Dropdown and Responsive Announcement Images
+
+### Notification location
+
+The notification center is no longer a centered dialog.
+
+```text
+Click company-colored bell
+→ Dropdown appears directly below the bell
+→ Recent notifications
+→ Mark All as Read
+→ Close
+```
+
+The unread count remains visible in the default state.
+
+### Announcement images
+
+Admin and Employee announcement images now use a shared aspect-ratio-safe
+renderer.
+
+```text
+- never stretched
+- never distorted
+- never enlarged beyond the original size
+- automatically reduced to fit maximum width and height
+- EXIF orientation corrected
+- centered inside the available announcement area
+```
+
+Large, wide, tall, and small uploaded images retain their natural proportions.
+
+No database migration is required.
+
+
+## v8.7.7 Clickable Notifications and Title-First Announcements
+
+### Announcement layout
+
+The announcement information now appears before the image:
+
+```text
+Category and publish date
+Announcement title
+Short summary
+Pinned status
+Responsive image
+Full announcement
+```
+
+This applies to Admin previews and the Employee Dashboard. Images continue to
+preserve their natural aspect ratio without stretching.
+
+### Wider notification dropdown
+
+The panel is now up to 460 pixels wide and is positioned beneath the bell using
+the bell button's actual browser coordinates. Text wraps normally instead of
+collapsing into a narrow vertical column.
+
+### Clickable notifications
+
+Every recent notification is a clickable card. Opening one:
+
+```text
+- marks that notification as read
+- closes the dropdown
+- navigates to the related module
+- preserves the related entity ID in the URL when available
+```
+
+Routing includes Announcements, Leave Management, Policies, Employees,
+Integrations, Company Profile, Onboarding, and the appropriate dashboard.
+
+No database migration is required.
+
+
+## v8.7.8 Full-Width Employee Announcements
+
+The redundant Quick Access panel is removed from the Employee Dashboard.
+Leave Management, Company Policies, and HR Assistant remain available in the
+fixed employee sidebar.
+
+The dashboard now uses the available content width for company announcements,
+filters, search, featured posts, and latest updates. Notification deep links
+remain supported.
+
+No database migration is required.
+
+## v8.8.0 Context-Aware HR Assistant
+
+The Employee Chat Assistant is no longer policy-only.
+
+### Grounded answer sources
+
+```text
+Live employee master record
+Live leave credits
+Live leave request history
+Configured leave types and operational rules
+Approved published company policy files
+Existing HR application modules
+```
+
+The assistant does not use outside knowledge and does not invent unavailable
+company information.
+
+### Leave shorthand and context
+
+```text
+VL = Vacation Leave
+SL = Sick Leave
+EL = Emergency Leave
+LWOP = Leave Without Pay
+```
+
+Configured custom leave codes and names are matched dynamically. Short
+follow-up questions reuse the previous user topic:
+
+```text
+User: Paano mag-file ng VL?
+User: Ilan na lang?
+Assistant: Returns the signed-in employee's current VL breakdown.
+```
+
+### Clickable navigation
+
+Answers can open Leave Management, File Leave Request, My Requests, Company
+Policies, My Documents, Benefits, Onboarding, HR Contacts, FAQ, and Dashboard.
+Leave-related actions support direct views through the `leave_view` query
+parameter.
+
+No database migration is required.
+
+
+## v8.8.1 Readable HR Assistant Responses
+
+The invisible white Markdown list text in the HR Assistant is fixed.
+
+Messages now use a stable keyed wrapper and `st.markdown`, preserving:
+
+```text
+Bullets
+Numbered steps
+Bold leave codes
+Links
+Policy formatting
+```
+
+A Light Mode contrast guard also covers read-only list content in policy
+sections, expanders, alerts, and other HR information. Dark editable form
+controls remain unchanged.
+
+No database migration is required.
+
+
+## v8.8.2 Readable Policy Content
+
+Employee policy source text no longer uses the `st.text` component that
+inherited an invisible white foreground in Light Mode.
+
+The policy browser now:
+
+```text
+Escapes uploaded source text safely
+Preserves original line breaks
+Uses normal readable typography
+Wraps long paragraphs
+Keeps headings, numbered paragraphs, and lists visible
+```
+
+The Policy Assistant answer is also rendered through a stable keyed Markdown
+wrapper. A fallback covers read-only `st.text` and preformatted content inside
+policy expanders without changing dark editable form fields.
+
+No database migration is required.
+
+
+## v8.8.3 Private and Topic-Aware HR Chat
+
+### Conversation privacy
+
+HR Assistant state is scoped using both `company_id` and `user_id`.
+Messages, input text, action widgets, and New Conversation controls are
+account-specific.
+
+Legacy global chat state is deleted rather than assigned to a newly logged-in
+employee. Private chat state is cleared when the authenticated account changes,
+logs out, or is cleared after an external password reset.
+
+### Topic reset
+
+A short message is no longer automatically treated as a follow-up.
+
+```text
+Leave
+→ Leave topic
+
+Policy
+→ New policy topic
+```
+
+Conversation history is used only for explicit incomplete follow-ups such as:
+
+```text
+Ilan na lang?
+How many left?
+Paano naman?
+What about that?
+```
+
+Recognizable standalone topics always take priority over previous messages.
+
+No database migration is required.

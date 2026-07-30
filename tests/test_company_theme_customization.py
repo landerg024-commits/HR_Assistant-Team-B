@@ -197,3 +197,19 @@ def test_theme_loader_uses_dynamic_accessible_variables() -> None:
     assert "const primaryColor = '__PRIMARY__';" in source
     assert "const onPrimary = '__ON_PRIMARY__';" in source
     assert "_enforce_input_value_contrast(tokens)" in source
+
+
+def test_notification_trigger_is_part_of_company_theme_palette() -> None:
+    source = (
+        PROJECT_ROOT
+        / "ui/theme/theme_loader.py"
+    ).read_text(encoding="utf-8")
+
+    block = source.split(
+        "NOTIFICATION TRIGGER COMPANY THEME — v8.7.1",
+        1,
+    )[1]
+
+    assert "var(--hr-primary)" in block
+    assert "var(--hr-on-primary)" in block
+    assert "rgba(var(--hr-primary-rgb)" in block

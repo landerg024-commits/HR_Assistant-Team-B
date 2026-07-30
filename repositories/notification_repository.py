@@ -39,6 +39,32 @@ class NotificationRepository(BaseRepository[Notification]):
         )
         return list(self.session.scalars(statement).all())
 
+    def mark_read(
+        self,
+        *,
+        company_id: int,
+        user_id: int,
+        notification_id: int,
+    ) -> int:
+        """Mark one authorized notification as read."""
+
+        result = self.session.execute(
+            update(Notification)
+            .where(
+                Notification.id == notification_id,
+                Notification.company_id == company_id,
+                Notification.user_id == user_id,
+                Notification.is_read.is_(False),
+            )
+            .values(
+                is_read=True,
+                read_at=datetime.now(timezone.utc),
+            )
+        )
+        self.session.commit()
+
+        return int(result.rowcount or 0)
+
     def mark_all_read(self, *, company_id: int, user_id: int) -> int:
         result = self.session.execute(
             update(Notification)
