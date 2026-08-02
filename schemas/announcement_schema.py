@@ -71,3 +71,4 @@ class AnnouncementInput(BaseModel):
             )
 
         return self
+

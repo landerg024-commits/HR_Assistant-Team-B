@@ -2172,3 +2172,313 @@ What about that?
 Recognizable standalone topics always take priority over previous messages.
 
 No database migration is required.
+
+
+## v8.8.4 Admin HR Assistant
+
+The Administration Portal now includes a private, company-scoped Chat
+Assistant. Its conversation is separate from the Employee Portal chat, even
+when the same administrator switches between portals.
+
+### Administrator questions
+
+```text
+How many employees do we have?
+Show active and inactive user accounts.
+Are there pending leave requests?
+Show the leave credits of EMP-001.
+How many policies are published?
+What is the company policy on overtime?
+How many announcements are scheduled?
+How do I create an announcement?
+Where do I configure SMTP?
+```
+
+The assistant uses live company records, approved policy sections, and safe
+navigation actions. Personal employee questions from an administrator—such as
+"Ilan na lang leave ko?"—still use the signed-in administrator's own employee
+record.
+
+### Security and privacy
+
+```text
+Company-scoped using company_id
+Private state using company_id + user_id
+Separate Admin and Employee Portal conversations
+Cleared on account change, logout, and password-reset session clear
+No password hashes, reset tokens, SMTP passwords, or cookie secrets displayed
+```
+
+No database migration is required.
+
+
+## v8.8.5 Company Logo Branding
+
+Administrators can upload, replace, preview, or remove a company logo from:
+
+```text
+Admin Portal -> Company Profile -> Company Logo
+```
+
+Supported uploads:
+
+```text
+PNG
+JPG / JPEG
+WEBP
+Maximum size: configurable, 5 MB by default
+```
+
+Uploaded images are decoded, validated, resized only when necessary, and
+re-encoded as a safe canonical PNG. The image remains company-scoped at:
+
+```text
+data/uploads/company_logos/<company_id>/company_logo.png
+```
+
+The logo is displayed at the top of both fixed protected sidebars:
+
+```text
+Admin Portal sidebar
+Employee Portal sidebar
+```
+
+CSS uses `object-fit: contain`, centered alignment, bounded width and height,
+and automatic dimensions so wide or tall logos are never stretched or cropped.
+When no logo is configured, the sidebar shows a neutral Company Logo
+placeholder.
+
+Existing databases receive the nullable `companies.logo_filename` column
+through the additive runtime schema upgrade. No destructive migration is used.
+
+
+## v8.8.6 Larger Company Logo
+
+The company logo now uses nearly the full sidebar logo holder.
+
+```text
+Holder height: 112 px
+Logo maximum height: 104 px
+Inner padding: 4 px vertical / 5 px horizontal
+Width and height: use the available holder area
+Scaling: object-fit contain
+Alignment: centered
+```
+
+The logo remains proportional and is not cropped or stretched. The same
+company-scoped logo continues to appear in both Admin and Employee portals.
+
+No database migration is required.
+
+
+## v8.8.8 Specific Notification Deep Links
+
+Notification clicks now open the exact related record instead of only the parent module.
+
+For leave notifications:
+
+```text
+Admin notification → Leave Requests → specific request details
+Employee notification → My Requests → specific request details
+Manager pending notification → Pending Approvals → specific request
+Manager decision notification → Reviewed Requests → specific request
+```
+
+The route uses both `leave_request_id` and `leave_view`. The destination validates the signed-in employee or manager context before showing employee-portal details. No database migration is required.
+
+
+## v8.8.9 Employee Form and Searchable List
+
+The Add Employee and Edit Employee tabs now use the same card-based layout:
+
+```text
+Employee Information
+Name fields
+Employment and organization fields
+Training Checklist
+
+Account Information
+User ID and clearance
+Username and temporary password
+```
+
+The Employee List now includes a company-scoped search field. All matching
+records remain in the table, while the viewport shows five fixed-height rows.
+Visible vertical and horizontal scrollbars provide access to the remaining
+records and columns. Search covers employee number, name, email, department,
+manager, job title, username, account state, status, and training items.
+
+No database migration is required.
+
+
+## v8.8.10 Notification Tab Targeting
+
+Leave notification links now keep the complete Leave Management workspace and
+select the exact tab plus the related request. Admin notifications open the
+Leave Requests tab and select the matching request in View Request Details.
+Employee and manager notifications select My Requests, Pending Approvals, or
+Reviewed Requests as appropriate. No database migration is required.
+
+
+## v8.8.11 Refresh-Safe Authentication
+
+Normal browser refreshes now preserve the signed-in account and current
+Admin or Employee Portal route. The authentication flow checks both the
+initial Streamlit request cookies and a one-cycle browser-component fallback
+before showing the login page.
+
+When `AUTH_COOKIE_SECRET` is blank, the application creates a private local
+secret at `data/.auth_cookie_secret`. Preserve this file with the `data`
+folder so valid sessions also survive Streamlit server restarts. Explicit
+logout, password reset, expired cookies, disabled accounts, and password
+changes still invalidate authentication.
+
+No database migration is required.
+
+
+## v8.8.12 Admin and Employee UX Refinements
+
+- Ctrl/Cmd+C now remains the normal browser Copy shortcut and no longer
+  opens Streamlit's Clear Caches dialog.
+- Admin HR Assistant uses admin-specific Quick Actions matching the card
+  organization of the Employee HR Assistant. The redundant Admin Shortcuts
+  and Answer Sources panels were removed.
+- Add Employee and Edit Employee include a company-scoped optional
+  Telephone / Mobile No. field. Existing databases receive the new nullable
+  column through the additive runtime schema upgrade.
+- The employee list includes and searches the telephone/mobile value.
+- The Edit Employee Danger Zone targets the currently selected employee and
+  now requires only one acknowledgment checkbox and the permanent-delete
+  button.
+
+No destructive database migration is required.
+
+
+## v8.8.13 Table and Leave Management Hotfix
+
+- Removes the accidental `selected_request_id` reference from Employee Leave Accounts.
+- Keeps notification filter reset inside the Leave Requests renderer only.
+- Makes the Employee List compact by removing duplicate split-name columns.
+- Combines email and telephone/mobile into one Contact column.
+- Uses a five-row maximum viewport without a large empty area for shorter lists.
+- Keeps Employee Number and Full Name visible while horizontally scrolling.
+
+No destructive database migration is required.
+
+
+## v8.8.14 Native Copy and Verified Refresh Persistence
+
+- Streamlit runs in viewer toolbar mode, removing developer cache tools
+  and leaving Ctrl/Cmd+C as the browser's normal Copy command.
+- The old JavaScript copy-key interception is removed.
+- Browser-cookie reads refresh the cookie component's internal cache.
+- A full refresh gets up to five short restoration cycles before the
+  login page is allowed to appear.
+- Login and password-change transitions verify that the signed cookie is
+  present in the browser before continuing, with a bounded timeout.
+- Logout verifies cookie removal before completing.
+
+No database migration is required.
+
+
+## v8.8.15 Copy and Refresh Root Fix
+
+This release removes two root causes from the previous authentication build:
+
+1. The browser-cookie controller is never refreshed immediately after its
+   keyed constructor call. The initial component is mounted once, and Login is
+   shown only after its first result is available.
+2. Cookie write/remove transitions no longer re-read or refresh the same
+   component during the same Streamlit run.
+
+Ctrl/Cmd+C now uses a parent-window capture listener that stops Streamlit's
+Clear-cache shortcut listener without calling `preventDefault`, preserving the
+browser's native Copy action.
+
+No database migration is required.
+
+
+## v8.8.16 Browser-Storage Refresh Fix
+
+Authentication persistence no longer depends on the third-party
+`streamlit-cookies-controller` component. A bundled offline Streamlit
+component stores the signed token in browser `localStorage`.
+
+Refresh flow:
+
+```text
+F5 / browser refresh
+→ new Streamlit session
+→ bundled component reads localStorage
+→ application waits for ready response
+→ signed token is validated against the database
+→ same user, portal, and URL-selected page are restored
+```
+
+Login, password change, logout, and external password reset all use the same
+storage key. The token remains signed, time-limited, password-fingerprint
+bound, company-scoped, and invalidated when the account or company is inactive.
+
+The custom component is included in the ZIP and needs no internet connection.
+No database migration is required.
+
+
+## v8.8.17 Single-Submit Login Fix
+
+All three login credentials now belong to one Streamlit form. The Company
+Code field no longer uses an external `on_change` rerun that could consume the
+first Sign In click.
+
+After successful credential validation, the authenticated Streamlit session
+opens the correct portal immediately. Browser-token persistence is retried
+non-blockingly from the protected page instead of stopping on the Login page.
+
+The separate full-browser-refresh persistence issue remains an open tracked
+item and is not claimed as resolved by this version.
+
+No database migration is required.
+
+## v8.8.19 — Scrollable Policy Management
+
+- Searchable Sections now stays inside a fixed-height scrollable box.
+- Version History tables keep a fixed height with vertical scrolling and a sticky header.
+- Move to Bin now targets the currently selected policy and uses a confirmation checkbox instead of typed Policy ID confirmation.
+- The backend still validates the selected policy ID before moving the version to the Bin.
+
+## v8.8.20 — Visible Policy Scrollbars
+
+- Detected Headings and policy document previews now show a clearly visible scrollbar track and thumb.
+- Searchable Sections uses a keyed fixed-height container with an always-reserved vertical scrollbar.
+- Extracted Policy Content and Editable Policy Content show visible scrollbars inside their fixed-height text areas.
+- Bounded Version History tables use a visible themed vertical scrollbar while keeping the sticky header.
+- No database migration is required.
+
+## v8.8.21 — Separated Policy Workspaces
+
+- The Policies area now has separate **Upload Policy File** and **Manage Existing Policy** sub-tabs.
+- Upload preview, detected headings, previous versions, and file processing remain inside the upload workspace.
+- The active policy table, selector, editing, new-version upload, content, sections, version history, and Move to Bin actions are grouped inside the management workspace.
+- The Bin remains a separate main tab, and all visible-scrollbar behavior from v8.8.20 is preserved.
+- No database migration is required.
+
+## v8.8.22 — Policy Library Peer Tabs and Preview
+
+- The Policies page now uses four equal-level tabs in this order: **Policies**, **Upload Policy File**, **Manage Existing Policy**, and **Bin**.
+- The **Policies** tab contains the active policy list only; the list stays in a fixed-height table with visible vertical and horizontal scrollbars and a sticky header.
+- A selected policy is not previewed automatically. Its approved content appears below the list only after **Preview Selected Policy** is clicked.
+- The read-only preview uses the same bounded detected-heading and extracted-section layout as the upload preview, without edit, version, file, history, or Bin actions.
+- **Manage Existing Policy** keeps all maintenance actions but no longer repeats the active policy list table.
+- No database migration is required.
+
+
+## v8.8.23 — Admin Event Calendar Reminders
+
+- Announcements can optionally be added to an event/activity calendar using a local date picker and time input.
+- Event end date and time are optional and validated to occur after the start.
+- Administrators can schedule an advance reminder for 1 hour, 1 day, 3 days, or 7 days before an event.
+- Due reminders create one in-app notification for every active clearance-1 administrator and never notify standard employee accounts.
+- Reminder delivery is database-backed and idempotent; refreshes do not create duplicate reminder notifications.
+- The new **Calendar & Reminders** tab provides a calendar-date view plus fixed-height, scrollable tables for scheduled and upcoming events.
+- Notification clicks open the related announcement through the existing refresh-safe announcement deep link.
+- Employee announcement cards display the configured event/activity schedule, while reminder status remains admin-only.
+- Existing databases receive additive event and reminder columns without deleting announcement records.

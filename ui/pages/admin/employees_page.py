@@ -144,28 +144,27 @@ def _account_cell(employee) -> str:
 def _employee_rows(
     employees,
 ) -> list[dict[str, object]]:
-    """Convert complete employee models into the requested table format."""
+    """Build a compact employee-list summary without duplicate name fields."""
 
     return [
         {
             "Employee Number": employee.employee_number,
             "Full Name": employee.full_name,
-            "Last Name": employee.last_name,
-            "First Name": employee.first_name,
-            "Middle Name": employee.middle_name or "",
-            "Suffix": employee.suffix or "",
-            "Job Title / Position": employee.job_title or "",
+            "Job Title / Position": employee.job_title or "—",
             "Department": (
                 employee.department.name
                 if employee.department
-                else ""
+                else "—"
             ),
             "Manager": (
                 employee.manager.full_name
                 if employee.manager
-                else ""
+                else "—"
             ),
-            "Email": employee.work_email or "",
+            "Email / Telephone / Mobile No.": (
+                f"Email: {employee.work_email or '—'}\n"
+                f"Tel/Mobile: {employee.telephone_mobile_no or '—'}"
+            ),
             "Status": (
                 "Employed\nAccount Active"
                 if employee.employment_status == "employed"
@@ -175,6 +174,71 @@ def _employee_rows(
             "Account": _account_cell(employee),
         }
         for employee in employees
+    ]
+
+
+def _employee_search_value(employee) -> str:
+    """Build one normalized searchable value for an employee record."""
+
+    values = [
+        employee.employee_number,
+        employee.full_name,
+        employee.first_name,
+        employee.middle_name,
+        employee.last_name,
+        employee.suffix,
+        employee.work_email,
+        employee.telephone_mobile_no,
+        employee.job_title,
+        employee.employment_status,
+        (
+            employee.department.name
+            if employee.department
+            else ""
+        ),
+        (
+            employee.manager.full_name
+            if employee.manager
+            else ""
+        ),
+        (
+            employee.user.username
+            if employee.user
+            else ""
+        ),
+        (
+            "active"
+            if employee.user and employee.user.is_active
+            else "inactive"
+        ),
+        *(
+            item.title
+            for item in employee.trainings
+        ),
+    ]
+
+    return " ".join(
+        str(value).strip().casefold()
+        for value in values
+        if value not in (None, "")
+    )
+
+
+def _filter_employees(
+    employees,
+    search_text: str,
+):
+    """Filter by employee, account, department, manager, or training text."""
+
+    normalized = search_text.strip().casefold()
+
+    if not normalized:
+        return list(employees)
+
+    return [
+        employee
+        for employee in employees
+        if normalized in _employee_search_value(employee)
     ]
 
 
@@ -229,7 +293,7 @@ def _html_cell(value: object) -> str:
 def _render_wrapped_employee_table(
     rows: list[dict[str, object]],
 ) -> None:
-    """Render a safe responsive table with wrapping in every cell."""
+    """Render all matching employees in a five-record scroll viewport."""
 
     headers = list(rows[0].keys())
 
@@ -242,7 +306,11 @@ def _render_wrapped_employee_table(
 
     for row in rows:
         cells = "".join(
-            f"<td>{_html_cell(row.get(header, ''))}</td>"
+            (
+                "<td><div class=\"employee-table-cell\">"
+                f"{_html_cell(row.get(header, ''))}"
+                "</div></td>"
+            )
             for header in headers
         )
 
@@ -254,40 +322,74 @@ def _render_wrapped_employee_table(
     <style>
         .employee-table-shell {{
             width: 100%;
-            overflow-x: auto;
+            height: auto;
+            max-height: 432px;
+            overflow-x: scroll;
+            overflow-y: scroll;
+            scrollbar-gutter: stable both-edges;
+            scrollbar-width: auto;
+            scrollbar-color: var(--hr-primary) var(--hr-border);
             border: 1px solid var(--hr-border);
             border-radius: 14px;
             background: var(--hr-surface);
         }}
 
+        .employee-table-shell::-webkit-scrollbar {{
+            width: 13px;
+            height: 13px;
+        }}
+
+        .employee-table-shell::-webkit-scrollbar-track {{
+            background: var(--hr-background);
+            border: 1px solid var(--hr-border);
+            border-radius: 10px;
+        }}
+
+        .employee-table-shell::-webkit-scrollbar-thumb {{
+            min-height: 36px;
+            background: var(--hr-primary);
+            border: 2px solid var(--hr-background);
+            border-radius: 10px;
+        }}
+
+        .employee-table-shell::-webkit-scrollbar-corner {{
+            background: var(--hr-background);
+        }}
+
         .employee-master-table {{
             width: 100%;
-            min-width: 1900px;
+            min-width: 1320px;
             border-collapse: separate;
             border-spacing: 0;
             table-layout: fixed;
-            font-size: 0.88rem;
+            font-size: 0.84rem;
         }}
 
         .employee-master-table th {{
             position: sticky;
             top: 0;
             z-index: 2;
-            padding: 12px 14px;
+            height: 46px;
+            padding: 8px 10px;
             border-right: 1px solid var(--hr-border);
             border-bottom: 1px solid var(--hr-border);
             background: var(--hr-surface);
             color: var(--hr-text-primary);
             text-align: left;
-            vertical-align: top;
+            vertical-align: middle;
             white-space: normal;
             overflow-wrap: anywhere;
             word-break: break-word;
-            line-height: 1.35;
+            line-height: 1.3;
+        }}
+
+        .employee-master-table tbody tr {{
+            height: 72px;
         }}
 
         .employee-master-table td {{
-            padding: 12px 14px;
+            height: 72px;
+            padding: 8px 10px;
             border-right: 1px solid var(--hr-border);
             border-bottom: 1px solid var(--hr-border);
             color: var(--hr-text-secondary);
@@ -296,19 +398,20 @@ def _render_wrapped_employee_table(
             white-space: normal;
             overflow-wrap: anywhere;
             word-break: break-word;
-            line-height: 1.45;
+            line-height: 1.4;
             transition:
                 color 0.14s ease,
                 background-color 0.14s ease;
         }}
 
+        .employee-table-cell {{
+            max-height: 56px;
+            overflow: hidden;
+        }}
+
         .employee-master-table th:last-child,
         .employee-master-table td:last-child {{
             border-right: 0;
-        }}
-
-        .employee-master-table tbody tr:last-child td {{
-            border-bottom: 0;
         }}
 
         .employee-master-table tbody tr:hover td {{
@@ -318,59 +421,71 @@ def _render_wrapped_employee_table(
 
         .employee-master-table th:nth-child(1),
         .employee-master-table td:nth-child(1) {{
-            width: 125px;
+            width: 120px;
+            position: sticky;
+            left: 0;
+            z-index: 3;
+            background: var(--hr-surface);
         }}
 
         .employee-master-table th:nth-child(2),
         .employee-master-table td:nth-child(2) {{
-            width: 190px;
+            width: 175px;
+            position: sticky;
+            left: 120px;
+            z-index: 3;
+            background: var(--hr-surface);
+            box-shadow: 8px 0 12px rgba(15, 23, 42, 0.04);
+        }}
+
+        .employee-master-table th:nth-child(1),
+        .employee-master-table th:nth-child(2) {{
+            z-index: 5;
+        }}
+
+        .employee-master-table tbody tr:hover td:nth-child(1),
+        .employee-master-table tbody tr:hover td:nth-child(2) {{
+            background: var(--hr-primary-soft);
         }}
 
         .employee-master-table th:nth-child(3),
-        .employee-master-table td:nth-child(3),
+        .employee-master-table td:nth-child(3) {{
+            width: 155px;
+        }}
+
         .employee-master-table th:nth-child(4),
         .employee-master-table td:nth-child(4) {{
             width: 135px;
         }}
 
         .employee-master-table th:nth-child(5),
-        .employee-master-table td:nth-child(5),
+        .employee-master-table td:nth-child(5) {{
+            width: 155px;
+        }}
+
         .employee-master-table th:nth-child(6),
         .employee-master-table td:nth-child(6) {{
-            width: 115px;
+            width: 225px;
         }}
 
         .employee-master-table th:nth-child(7),
-        .employee-master-table td:nth-child(7),
-        .employee-master-table th:nth-child(8),
-        .employee-master-table td:nth-child(8),
-        .employee-master-table th:nth-child(9),
-        .employee-master-table td:nth-child(9) {{
-            width: 165px;
+        .employee-master-table td:nth-child(7) {{
+            width: 130px;
         }}
 
-        .employee-master-table th:nth-child(10),
-        .employee-master-table td:nth-child(10) {{
+        .employee-master-table th:nth-child(8),
+        .employee-master-table td:nth-child(8) {{
             width: 210px;
         }}
 
-        .employee-master-table th:nth-child(11),
-        .employee-master-table td:nth-child(11) {{
-            width: 110px;
-        }}
-
-        .employee-master-table th:nth-child(12),
-        .employee-master-table td:nth-child(12) {{
-            width: 230px;
-        }}
-
-        .employee-master-table th:nth-child(13),
-        .employee-master-table td:nth-child(13) {{
-            width: 245px;
+        .employee-master-table th:nth-child(9),
+        .employee-master-table td:nth-child(9) {{
+            width: 215px;
         }}
     </style>
 
-    <div class="employee-table-shell">
+    <div class="employee-table-shell" role="region"
+         aria-label="Scrollable employee list" tabindex="0">
         <table class="employee-master-table">
             <thead>
                 <tr>{header_html}</tr>
@@ -389,18 +504,38 @@ def _render_wrapped_employee_table(
 
 
 def _render_employee_list(employees) -> None:
-    """Display the employee table with wrapping inside every cell."""
+    """Display a searchable list with five records visible at a time."""
 
     st.subheader("Employee List")
     st.caption(
-        "Every cell wraps automatically. Employment Status also shows "
-        "whether the linked account is active or inactive."
+        "Search any employee, account, department, manager, or training. "
+        "Five records are visible; scroll for more rows. Detailed name "
+        "fields remain available in Add/Edit Employee."
     )
 
-    rows = _employee_rows(employees)
+    search_text = st.text_input(
+        "Search Employees",
+        placeholder=(
+            "Search employee number, name, email, telephone/mobile, "
+            "department, manager, position, username, or training..."
+        ),
+        key="employee_master_search",
+    )
+
+    filtered = _filter_employees(
+        employees,
+        search_text,
+    )
+    rows = _employee_rows(filtered)
+
+    st.caption(
+        f"Showing {len(filtered)} of {len(employees)} employee record(s)."
+    )
 
     if not rows:
-        st.info("No employee records were found.")
+        st.info(
+            "No employee record matches the current search."
+        )
         return
 
     _render_wrapped_employee_table(rows)
@@ -424,121 +559,171 @@ def _render_add_employee(
         "employee_master_create_form",
         clear_on_submit=True,
     ):
-        st.markdown("#### Employee Information")
+        with st.container(
+            border=True,
+            key="employee_create_information_card",
+        ):
+            st.markdown("### Employee Information")
 
-        left, middle, right = st.columns(3)
+            number_column, _ = st.columns(
+                [1.0, 5.0]
+            )
+            with number_column:
+                employee_number = st.text_input(
+                    "Employee Number *",
+                    max_chars=80,
+                )
 
-        with left:
-            employee_number = st.text_input(
-                "Employee Number *",
-                max_chars=80,
-            )
-            last_name = st.text_input(
-                "Last Name *",
-                max_chars=100,
-            )
-            first_name = st.text_input(
-                "First Name *",
-                max_chars=100,
-            )
-
-        with middle:
-            middle_name = st.text_input(
-                "Middle Name",
-                max_chars=100,
-            )
-            suffix = st.text_input(
-                "Suffix",
-                max_chars=30,
-            )
-            email = st.text_input(
-                "Email *",
-                max_chars=255,
+            last_column, first_column, middle_column, suffix_column = (
+                st.columns(4)
             )
 
-        with right:
-            job_title = st.text_input(
-                "Job Title / Position",
-                max_chars=150,
+            with last_column:
+                last_name = st.text_input(
+                    "Last Name *",
+                    max_chars=100,
+                )
+
+            with first_column:
+                first_name = st.text_input(
+                    "First Name *",
+                    max_chars=100,
+                )
+
+            with middle_column:
+                middle_name = st.text_input(
+                    "Middle Name",
+                    max_chars=100,
+                )
+
+            with suffix_column:
+                suffix = st.text_input(
+                    "Suffix",
+                    max_chars=30,
+                )
+
+            email_column, telephone_column, _ = st.columns(
+                [2.0, 2.0, 2.0]
             )
-            department_name = st.text_input(
-                "Department",
-                max_chars=150,
+            with email_column:
+                email = st.text_input(
+                    "Email *",
+                    max_chars=255,
+                )
+
+            with telephone_column:
+                telephone_mobile_no = st.text_input(
+                    "Telephone / Mobile No.",
+                    max_chars=50,
+                )
+
+            status_column, hire_column, _ = st.columns(
+                [1.4, 0.8, 3.8]
+            )
+
+            with status_column:
+                status_label = st.selectbox(
+                    "Employment Status",
+                    options=list(
+                        EMPLOYMENT_STATUS_OPTIONS
+                    ),
+                    help=(
+                        "Employed keeps the login account active. "
+                        "Resigned automatically deactivates the account."
+                    ),
+                )
+
+            with hire_column:
+                hire_date = st.date_input(
+                    "Hire Date",
+                    value=date.today(),
+                )
+
+            department_column, manager_column, position_column = (
+                st.columns(3)
+            )
+
+            with department_column:
+                department_name = st.text_input(
+                    "Department",
+                    max_chars=150,
+                    help=(
+                        "Enter an existing or new department name. "
+                        "Matching is case-insensitive, and a new department "
+                        "record is created automatically when needed."
+                    ),
+                )
+
+            with manager_column:
+                manager_label = st.selectbox(
+                    "Manager",
+                    options=list(managers),
+                )
+
+            with position_column:
+                job_title = st.text_input(
+                    "Job Title / Position",
+                    max_chars=150,
+                )
+
+            st.markdown("### Training Checklist")
+            training_text = st.text_area(
+                "Training",
+                height=150,
+                placeholder=(
+                    "[x] Company Orientation\n"
+                    "[ ] Data Privacy Training\n"
+                    "[ ] Safety Training"
+                ),
                 help=(
-                    "Enter an existing or new department name. "
-                    "Matching is case-insensitive, and a new department "
-                    "record is created automatically when needed."
-                ),
-            )
-            status_label = st.selectbox(
-                "Employment Status",
-                options=list(
-                    EMPLOYMENT_STATUS_OPTIONS
-                ),
-                help=(
-                    "Employed keeps the login account active. "
-                    "Resigned automatically deactivates the account."
+                    "Use one training per line. [x] means completed and "
+                    "[ ] means pending."
                 ),
             )
 
-        manager_label = st.selectbox(
-            "Manager",
-            options=list(managers),
-        )
+        with st.container(
+            border=True,
+            key="employee_create_account_card",
+        ):
+            st.markdown("### Account Information")
 
-        hire_date = st.date_input(
-            "Hire Date",
-            value=date.today(),
-        )
+            user_id_column, clearance_column = st.columns(2)
 
-        st.markdown("#### Training Checklist")
-        training_text = st.text_area(
-            "Training",
-            height=150,
-            placeholder=(
-                "[x] Company Orientation\n"
-                "[ ] Data Privacy Training\n"
-                "[ ] Safety Training"
-            ),
-            help=(
-                "Use one training per line. [x] means completed and "
-                "[ ] means pending."
-            ),
-        )
+            with user_id_column:
+                st.text_input(
+                    "User ID",
+                    value="Generated automatically after saving",
+                    disabled=True,
+                )
 
-        st.markdown("#### Account Information")
+            with clearance_column:
+                clearance_label = st.selectbox(
+                    "Clearance *",
+                    options=[
+                        "1 - Admin",
+                        "2 - User",
+                    ],
+                    index=1,
+                )
 
-        account_left, account_right = st.columns(2)
+            username_column, password_column = st.columns(2)
 
-        with account_left:
-            username = st.text_input(
-                "User Name *",
-                max_chars=100,
-            )
-            temporary_password = st.text_input(
-                "Temporary Password *",
-                type="password",
-                max_chars=128,
-                help=(
-                    "The employee must change this password "
-                    "during first login."
-                ),
-            )
+            with username_column:
+                username = st.text_input(
+                    "User Name *",
+                    max_chars=100,
+                )
 
-        with account_right:
-            clearance_label = st.selectbox(
-                "Clearance *",
-                options=[
-                    "1 - Admin",
-                    "2 - User",
-                ],
-                index=1,
-            )
-            st.text_input(
-                "User ID",
-                value="Generated automatically after saving",
-                disabled=True,
-            )
+            with password_column:
+                temporary_password = st.text_input(
+                    "Temporary Password *",
+                    type="password",
+                    max_chars=128,
+                    help=(
+                        "The employee must change this password "
+                        "during first login."
+                    ),
+                )
 
         submitted = st.form_submit_button(
             "Create Employee Record",
@@ -564,6 +749,10 @@ def _render_add_employee(
             ),
             manager_id=managers[manager_label],
             work_email=email.strip(),
+            telephone_mobile_no=(
+                telephone_mobile_no.strip()
+                or None
+            ),
             employment_status=(
                 EMPLOYMENT_STATUS_OPTIONS[
                     status_label
@@ -616,7 +805,7 @@ def _render_delete_employee(
     full_name: str,
     user_id: int | None,
 ) -> None:
-    """Render the protected permanent-delete action."""
+    """Delete the currently selected employee after one acknowledgment."""
 
     st.divider()
 
@@ -638,36 +827,29 @@ def _render_delete_employee(
             return
 
         st.caption(
-            f"Selected employee: {employee_number} — {full_name}"
+            "Selected employee to delete: "
+            f"{employee_number} — {full_name}"
         )
 
-        with st.form(
-            f"employee_delete_form_{employee_id}",
-            clear_on_submit=False,
-        ):
-            confirmation_number = st.text_input(
-                "Type the exact Employee Number to confirm",
-                placeholder=employee_number,
-                max_chars=80,
-                key=(
-                    "employee_delete_confirmation_"
-                    f"{employee_id}"
-                ),
-            )
+        acknowledged = st.checkbox(
+            "I understand that this permanently deletes the selected "
+            "employee record and linked login account.",
+            key=(
+                "employee_delete_acknowledged_"
+                f"{employee_id}"
+            ),
+        )
 
-            acknowledged = st.checkbox(
-                "I understand that this permanently deletes the "
-                "employee record and linked login account.",
-                key=(
-                    "employee_delete_acknowledged_"
-                    f"{employee_id}"
-                ),
-            )
-
-            delete_submitted = st.form_submit_button(
-                "Delete Employee Permanently",
-                use_container_width=True,
-            )
+        delete_submitted = st.button(
+            "Delete Employee Permanently",
+            type="primary",
+            use_container_width=True,
+            disabled=not acknowledged,
+            key=(
+                "employee_delete_button_"
+                f"{employee_id}"
+            ),
+        )
 
         if not delete_submitted:
             return
@@ -676,9 +858,6 @@ def _render_delete_employee(
             request = EmployeeDeleteRequest(
                 company_id=current_user.company_id,
                 employee_id=employee_id,
-                confirmation_employee_number=(
-                    confirmation_number
-                ),
                 permanent_delete_acknowledged=acknowledged,
             )
 
@@ -695,6 +874,11 @@ def _render_delete_employee(
 
             st.session_state.pop(
                 "employee_master_edit_selection",
+                None,
+            )
+            st.session_state.pop(
+                "employee_delete_acknowledged_"
+                f"{employee_id}",
                 None,
             )
 
@@ -714,7 +898,6 @@ def _render_delete_employee(
                 "The employee record could not be deleted. "
                 "No deletion was completed."
             )
-
 
 def _render_edit_employee(
     current_user: AuthenticatedUser,
@@ -764,6 +947,9 @@ def _render_edit_employee(
             "middle_name": selected.middle_name or "",
             "suffix": selected.suffix or "",
             "email": selected.work_email or "",
+            "telephone_mobile_no": (
+                selected.telephone_mobile_no or ""
+            ),
             "job_title": selected.job_title or "",
             "department": (
                 selected.department.name
@@ -807,60 +993,71 @@ def _render_edit_employee(
     with st.form(
         f"employee_master_edit_form_{selected_id}"
     ):
-        st.markdown("#### Employee Information")
+        with st.container(
+            border=True,
+            key=f"employee_edit_information_card_{selected_id}",
+        ):
+            st.markdown("### Employee Information")
 
-        left, middle, right = st.columns(3)
+            number_column, _ = st.columns(
+                [1.0, 5.0]
+            )
+            with number_column:
+                employee_number = st.text_input(
+                    "Employee Number *",
+                    value=values["employee_number"],
+                    max_chars=80,
+                )
 
-        with left:
-            employee_number = st.text_input(
-                "Employee Number *",
-                value=values["employee_number"],
-                max_chars=80,
-            )
-            last_name = st.text_input(
-                "Last Name *",
-                value=values["last_name"],
-                max_chars=100,
-            )
-            first_name = st.text_input(
-                "First Name *",
-                value=values["first_name"],
-                max_chars=100,
-            )
-
-        with middle:
-            middle_name = st.text_input(
-                "Middle Name",
-                value=values["middle_name"],
-                max_chars=100,
-            )
-            suffix = st.text_input(
-                "Suffix",
-                value=values["suffix"],
-                max_chars=30,
-            )
-            email = st.text_input(
-                "Email *",
-                value=values["email"],
-                max_chars=255,
+            last_column, first_column, middle_column, suffix_column = (
+                st.columns(4)
             )
 
-        with right:
-            job_title = st.text_input(
-                "Job Title / Position",
-                value=values["job_title"],
-                max_chars=150,
+            with last_column:
+                last_name = st.text_input(
+                    "Last Name *",
+                    value=values["last_name"],
+                    max_chars=100,
+                )
+
+            with first_column:
+                first_name = st.text_input(
+                    "First Name *",
+                    value=values["first_name"],
+                    max_chars=100,
+                )
+
+            with middle_column:
+                middle_name = st.text_input(
+                    "Middle Name",
+                    value=values["middle_name"],
+                    max_chars=100,
+                )
+
+            with suffix_column:
+                suffix = st.text_input(
+                    "Suffix",
+                    value=values["suffix"],
+                    max_chars=30,
+                )
+
+            email_column, telephone_column, _ = st.columns(
+                [2.0, 2.0, 2.0]
             )
-            department_name = st.text_input(
-                "Department",
-                value=values["department"],
-                max_chars=150,
-                help=(
-                    "Edit the department directly. Existing names are "
-                    "reused case-insensitively; new names create "
-                    "department records automatically."
-                ),
-            )
+            with email_column:
+                email = st.text_input(
+                    "Email *",
+                    value=values["email"],
+                    max_chars=255,
+                )
+
+            with telephone_column:
+                telephone_mobile_no = st.text_input(
+                    "Telephone / Mobile No.",
+                    value=values["telephone_mobile_no"],
+                    max_chars=50,
+                )
+
             status_labels = list(
                 EMPLOYMENT_STATUS_OPTIONS
             )
@@ -869,81 +1066,122 @@ def _render_edit_employee(
                 if values["status"] == "employed"
                 else "Resigned — Account Inactive"
             )
-            status_label = st.selectbox(
-                "Employment Status",
-                options=status_labels,
-                index=status_labels.index(
-                    current_status_label
-                ),
+
+            status_column, hire_column, _ = st.columns(
+                [1.4, 0.8, 3.8]
+            )
+
+            with status_column:
+                status_label = st.selectbox(
+                    "Employment Status",
+                    options=status_labels,
+                    index=status_labels.index(
+                        current_status_label
+                    ),
+                    help=(
+                        "Changing to Resigned deactivates the login account. "
+                        "Changing back to Employed reactivates it."
+                    ),
+                )
+
+            with hire_column:
+                hire_date = st.date_input(
+                    "Hire Date",
+                    value=values["hire_date"],
+                )
+
+            department_column, manager_column, position_column = (
+                st.columns(3)
+            )
+
+            with department_column:
+                department_name = st.text_input(
+                    "Department",
+                    value=values["department"],
+                    max_chars=150,
+                    help=(
+                        "Edit the department directly. Existing names are "
+                        "reused case-insensitively; new names create "
+                        "department records automatically."
+                    ),
+                )
+
+            with manager_column:
+                manager_label = st.selectbox(
+                    "Manager",
+                    options=list(managers),
+                    index=manager_index,
+                )
+
+            with position_column:
+                job_title = st.text_input(
+                    "Job Title / Position",
+                    value=values["job_title"],
+                    max_chars=150,
+                )
+
+            st.markdown("### Training Checklist")
+            training_text = st.text_area(
+                "Training",
+                value=values["training"],
+                height=180,
                 help=(
-                    "Changing to Resigned deactivates the login account. "
-                    "Changing back to Employed reactivates it."
+                    "Use [x] for completed and [ ] for pending."
                 ),
             )
 
-        manager_label = st.selectbox(
-            "Manager",
-            options=list(managers),
-            index=manager_index,
-        )
+        with st.container(
+            border=True,
+            key=f"employee_edit_account_card_{selected_id}",
+        ):
+            st.markdown("### Account Information")
 
-        hire_date = st.date_input(
-            "Hire Date",
-            value=values["hire_date"],
-        )
+            user_id_column, clearance_column = st.columns(2)
 
-        st.markdown("#### Training Checklist")
-        training_text = st.text_area(
-            "Training",
-            value=values["training"],
-            height=180,
-            help=(
-                "Use [x] for completed and [ ] for pending."
-            ),
-        )
+            with user_id_column:
+                st.text_input(
+                    "User ID",
+                    value=(
+                        str(values["user_id"])
+                        if values["user_id"] is not None
+                        else "Will be generated"
+                    ),
+                    disabled=True,
+                )
 
-        st.markdown("#### Account Information")
+            with clearance_column:
+                clearance_label = st.selectbox(
+                    "Clearance *",
+                    options=[
+                        "1 - Admin",
+                        "2 - User",
+                    ],
+                    index=(
+                        0
+                        if values["clearance"] == 1
+                        else 1
+                    ),
+                )
 
-        account_left, account_right = st.columns(2)
+            username_column, password_column = st.columns(2)
 
-        with account_left:
-            st.text_input(
-                "User ID",
-                value=(
-                    str(values["user_id"])
-                    if values["user_id"] is not None
-                    else "Will be generated"
-                ),
-                disabled=True,
-            )
-            username = st.text_input(
-                "User Name *",
-                value=values["username"],
-                max_chars=100,
-            )
+            with username_column:
+                username = st.text_input(
+                    "User Name *",
+                    value=values["username"],
+                    max_chars=100,
+                )
 
-        with account_right:
-            clearance_label = st.selectbox(
-                "Clearance *",
-                options=[
-                    "1 - Admin",
-                    "2 - User",
-                ],
-                index=(
-                    0
-                    if values["clearance"] == 1
-                    else 1
-                ),
-            )
-            new_password = st.text_input(
-                "New Temporary Password",
-                type="password",
-                max_chars=128,
-                help=(
-                    "Leave blank to keep the current password. "
-                    "A newly set password must be changed at next login."
-                ),
-            )
+            with password_column:
+                new_password = st.text_input(
+                    "New Temporary Password",
+                    type="password",
+                    max_chars=128,
+                    help=(
+                        "Leave blank to keep the current password. "
+                        "A newly set password must be changed at next login."
+                    ),
+                )
 
         submitted = st.form_submit_button(
             "Save Employee Changes",
@@ -962,6 +1200,10 @@ def _render_edit_employee(
                 middle_name=middle_name.strip() or None,
                 suffix=suffix.strip() or None,
                 work_email=email.strip(),
+                telephone_mobile_no=(
+                    telephone_mobile_no.strip()
+                    or None
+                ),
                 job_title=job_title.strip() or None,
                 department_name=(
                     department_name.strip()

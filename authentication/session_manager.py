@@ -1,19 +1,17 @@
 """Streamlit authentication-session management.
 
 Normal widget reruns use Streamlit session_state. Full browser refreshes
-restore the user from the signed authentication cookie.
-
-Cookie write/removal is followed by a native Streamlit timed rerun, avoiding
-blocked iframe top-navigation.
+restore the user from a signed token in browser localStorage. The bundled
+component waits for the browser response before Login can be rendered.
 """
 
 import streamlit as st
 
-from authentication.browser_auth_cookie import (
-    read_auth_cookie,
-    remove_auth_cookie,
-    replace_auth_cookie_and_continue,
-    write_auth_cookie_and_continue,
+from authentication.browser_auth_storage import (
+    read_browser_auth_token,
+    remove_browser_auth_token,
+    replace_browser_auth_token_and_continue,
+    write_browser_auth_token,
 )
 from authentication.current_user import AuthenticatedUser
 from authentication.signed_cookie_auth_service import (
@@ -30,6 +28,7 @@ class AuthSessionManager:
     AUTHENTICATED_KEY = "is_authenticated"
     USER_KEY = "authenticated_user"
     TOKEN_KEY = "signed_auth_token"
+    PENDING_BROWSER_TOKEN_KEY = "_pending_browser_auth_token"
 
     # Prevent the original WebSocket request cookie from restoring the user
     # immediately after explicit logout.
@@ -40,6 +39,9 @@ class AuthSessionManager:
         "hr_assistant_chat_messages__",
         "hr_assistant_chat_input__",
         "new_hr_assistant_conversation__",
+        "admin_hr_assistant_chat_messages__",
+        "admin_hr_assistant_chat_input__",
+        "new_admin_hr_assistant_conversation__",
     )
     HR_CHAT_UNSCOPED_KEYS = {
         "hr_assistant_chat_messages",
@@ -60,6 +62,10 @@ class AuthSessionManager:
         )
         st.session_state.setdefault(
             cls.TOKEN_KEY,
+            None,
+        )
+        st.session_state.setdefault(
+            cls.PENDING_BROWSER_TOKEN_KEY,
             None,
         )
         st.session_state.setdefault(
@@ -156,12 +162,38 @@ class AuthSessionManager:
         *,
         signed_token: str,
     ) -> None:
-        """Save login state, write the cookie, and open the portal."""
+        """Open the portal on the first submit and persist in the background."""
 
         cls._save_session(user, signed_token)
-        write_auth_cookie_and_continue(
-            signed_token
+        st.session_state[
+            cls.PENDING_BROWSER_TOKEN_KEY
+        ] = signed_token
+
+        # Do not stop on the Login page while a browser component writes the
+        # persistence token. The current Streamlit session is already safely
+        # authenticated, so route to the portal immediately.
+        st.rerun()
+
+    @classmethod
+    def flush_pending_browser_token(cls) -> None:
+        """Persist a pending token without blocking an authenticated page."""
+
+        pending = st.session_state.get(
+            cls.PENDING_BROWSER_TOKEN_KEY
         )
+
+        if not isinstance(pending, str) or not pending:
+            return
+
+        try:
+            if write_browser_auth_token(pending):
+                st.session_state[
+                    cls.PENDING_BROWSER_TOKEN_KEY
+                ] = None
+        except (ValueError, RuntimeError):
+            # Keep the portal usable. Persistence can retry on the next rerun;
+            # the separate full-refresh issue remains tracked independently.
+            return
 
     @classmethod
     def _clear_local_session(cls) -> None:
@@ -170,14 +202,18 @@ class AuthSessionManager:
         st.session_state[cls.AUTHENTICATED_KEY] = False
         st.session_state[cls.USER_KEY] = None
         st.session_state[cls.TOKEN_KEY] = None
+        st.session_state[
+            cls.PENDING_BROWSER_TOKEN_KEY
+        ] = None
 
     @classmethod
-    def restore_from_cookie(cls) -> bool:
-        """Restore or revalidate authentication on every application run.
+    def restore_from_browser(cls) -> bool:
+        """Restore the account from memory or persistent browser storage.
 
-        Revalidation means a password reset invalidates already-open signed
-        sessions on their next Streamlit interaction, not only after a full
-        browser refresh.
+        A full F5 refresh creates a new Streamlit session. The bundled
+        component returns ``ready=False`` during its first render, so the
+        application stops before Login and resumes only after localStorage
+        has returned the signed token (or confirmed that none exists).
         """
 
         if st.session_state.get(cls.LOGOUT_PENDING_KEY):
@@ -186,22 +222,21 @@ class AuthSessionManager:
         token = st.session_state.get(cls.TOKEN_KEY)
 
         if not isinstance(token, str) or not token:
-            token = read_auth_cookie()
+            token = read_browser_auth_token()
 
         if not isinstance(token, str) or not token:
             cls._clear_local_session()
             return False
 
         try:
+            # Revalidation means a password reset, disabled account, or
+            # inactive company invalidates the stored browser token.
             with SessionFactory() as session:
                 current_user = SignedCookieAuthService(
                     session
                 ).restore_user(token)
 
-            cls._save_session(
-                current_user,
-                token,
-            )
+            cls._save_session(current_user, token)
             return True
 
         except (
@@ -209,10 +244,16 @@ class AuthSessionManager:
             ValueError,
         ):
             cls._clear_local_session()
-            remove_auth_cookie(
+            remove_browser_auth_token(
                 wait_for_completion=False
             )
             return False
+
+    @classmethod
+    def restore_from_cookie(cls) -> bool:
+        """Compatibility alias retained for older integrations."""
+
+        return cls.restore_from_browser()
 
     @classmethod
     def complete_password_change(
@@ -224,7 +265,7 @@ class AuthSessionManager:
         """Save updated user data and replace the cookie."""
 
         cls._save_session(user, signed_token)
-        replace_auth_cookie_and_continue(
+        replace_browser_auth_token_and_continue(
             signed_token
         )
 
@@ -247,11 +288,13 @@ class AuthSessionManager:
         st.session_state[cls.AUTHENTICATED_KEY] = False
         st.session_state[cls.USER_KEY] = None
         st.session_state[cls.TOKEN_KEY] = None
+        st.session_state[
+            cls.PENDING_BROWSER_TOKEN_KEY
+        ] = None
         st.session_state[cls.LOGOUT_PENDING_KEY] = True
-
         clear_navigation_state()
 
-        remove_auth_cookie(
+        remove_browser_auth_token(
             wait_for_completion=True
         )
 
@@ -263,7 +306,7 @@ class AuthSessionManager:
         cls._clear_local_session()
         st.session_state[cls.LOGOUT_PENDING_KEY] = False
         clear_navigation_state()
-        remove_auth_cookie(
+        remove_browser_auth_token(
             wait_for_completion=False
         )
 

@@ -1,7 +1,8 @@
 """Post elapsed approved leave days for every company.
 
-This script is safe to run repeatedly because each leave request stores the
-number of working days already posted. It can be scheduled once daily through
+This script is safe to run repeatedly. It creates the current calendar-year
+balances, applies due service-anniversary increases, and uses each request's
+posted-day counter to prevent duplicate deductions. It can be scheduled once daily through
 Windows Task Scheduler. The Streamlit app also runs the same reconciliation as
 a safety fallback whenever an authenticated user opens the application.
 """
@@ -30,9 +31,11 @@ def main() -> None:
 
     for company_id in company_ids:
         with SessionFactory() as session:
-            total_changed += LeaveService(
-                session
-            ).reconcile_approved_leave(
+            service = LeaveService(session)
+            service.ensure_current_year_balances(
+                int(company_id)
+            )
+            total_changed += service.reconcile_approved_leave(
                 company_id=int(company_id)
             )
 

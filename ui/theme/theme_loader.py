@@ -1246,6 +1246,53 @@ const applyLightControls = () => {
     )
 
 
+
+def _install_native_copy_shortcut_guard() -> None:
+    """Keep Ctrl/Cmd+C as browser Copy instead of Streamlit Clear caches.
+
+    ``stopImmediatePropagation`` blocks Streamlit's global ``c`` shortcut.
+    The handler never calls ``preventDefault``, so the browser still copies
+    the current selection or focused input value normally.
+    """
+
+    script = """
+        <script>
+        (() => {
+            const parentWindow = window.parent;
+            const marker = "__aiHrNativeCopyGuardInstalled";
+
+            if (parentWindow[marker]) {
+                return;
+            }
+
+            const preserveCopy = (event) => {
+                const key = String(event.key || "").toLowerCase();
+                const isCopy = (
+                    (event.ctrlKey || event.metaKey)
+                    && key === "c"
+                );
+
+                if (!isCopy) {
+                    return;
+                }
+
+                // Block Streamlit's Clear-cache hotkey listener only.
+                // Do not prevent the browser's native Copy default action.
+                event.stopImmediatePropagation();
+            };
+
+            parentWindow.addEventListener(
+                "keydown",
+                preserveCopy,
+                true
+            );
+            parentWindow[marker] = true;
+        })();
+        </script>
+    """
+
+    components.html(script, height=0, width=0)
+
 def apply_theme(
     primary_color: str | None = None,
 ) -> None:
@@ -1547,6 +1594,62 @@ def apply_theme(
         border-radius: 18px;
         box-shadow: var(--hr-shadow);
     }}
+
+/* =========================================================
+   COMPANY LOGO — v8.8.7
+   Larger transparent logo area with consistent aspect-ratio-safe sizing.
+========================================================= */
+[data-testid="stSidebarUserContent"] {{
+    padding-top: 0.45rem !important;
+}}
+
+.hr-sidebar-logo-shell {{
+    width: 100%;
+    height: 132px;
+    min-height: 132px;
+    max-height: 132px;
+    margin: 0 0 8px 0;
+    padding: 0;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    overflow: hidden;
+    box-sizing: border-box;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+}}
+
+.hr-sidebar-logo-shell img {{
+    display: block;
+    width: 100% !important;
+    height: 100% !important;
+    max-width: 100% !important;
+    max-height: 128px !important;
+    margin: auto;
+    object-fit: contain !important;
+    object-position: center !important;
+    background: transparent !important;
+}}
+
+.hr-sidebar-logo-placeholder {{
+    width: 100%;
+    min-height: 90px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--hr-text-muted);
+    font-size: 0.78rem;
+    font-weight: 650;
+    letter-spacing: 0.03em;
+    text-align: center;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+}}
 
     .hr-brand {{
         color: var(--hr-primary-text);
@@ -2499,6 +2602,148 @@ button[data-testid^="stBaseButton"]:disabled * {{
 }}
 
 /* =========================================================
+   POLICY PREVIEW SCROLL BOXES — v8.8.18
+   Complete content stays available without stretching the page.
+========================================================= */
+
+.hr-policy-headings-preview {{
+    background: #F8F9FC !important;
+    border: 1px solid #D8DEEA !important;
+    border-radius: 10px !important;
+    padding: 12px 14px !important;
+    margin: 5px 0 4px 0 !important;
+    color: #10172A !important;
+    -webkit-text-fill-color: #10172A !important;
+}}
+
+.hr-policy-headings-title {{
+    color: #10172A !important;
+    -webkit-text-fill-color: #10172A !important;
+    font-weight: 700 !important;
+    margin-bottom: 6px !important;
+}}
+
+.hr-policy-headings-scroll {{
+    max-height: 170px !important;
+    overflow-y: scroll !important;
+    overflow-x: hidden !important;
+    scrollbar-gutter: stable !important;
+    padding-right: 8px !important;
+}}
+
+.hr-policy-headings-scroll ol {{
+    margin: 0 !important;
+    padding-left: 22px !important;
+    color: #10172A !important;
+    -webkit-text-fill-color: #10172A !important;
+    line-height: 1.28 !important;
+}}
+
+.hr-policy-headings-scroll li {{
+    margin: 0 0 3px 0 !important;
+    color: #10172A !important;
+    -webkit-text-fill-color: #10172A !important;
+    line-height: 1.28 !important;
+    overflow-wrap: anywhere !important;
+}}
+
+/* =========================================================
+   VISIBLE POLICY SCROLLBARS — v8.8.20
+   Fixed-height policy boxes keep a visible scrollbar track and thumb.
+========================================================= */
+
+.hr-policy-headings-scroll,
+.hr-policy-section-preview,
+div[class*="st-key-policy_section_results_"],
+div[class*="st-key-policy_section_results_"]
+[data-testid="stVerticalBlockBorderWrapper"],
+div[class*="st-key-policy_section_results_"]
+[data-testid="stVerticalBlock"],
+div[class*="st-key-policy_content_"] textarea,
+div[class*="st-key-editable_policy_content_"] textarea {{
+    scrollbar-width: auto !important;
+    scrollbar-color: var(--hr-primary) #E5EAF2 !important;
+    scrollbar-gutter: stable !important;
+}}
+
+/* Force the native bounded Searchable Sections container to reserve
+   its vertical scrollbar instead of relying on an overlay scrollbar. */
+div[class*="st-key-policy_section_results_"][data-testid="stVerticalBlockBorderWrapper"],
+div[class*="st-key-policy_section_results_"]
+[data-testid="stVerticalBlockBorderWrapper"],
+div[class*="st-key-policy_section_results_"] {{
+    overflow-y: scroll !important;
+}}
+
+/* The complete extracted content and editable content are also fixed
+   height, so their scrollbars remain visibly available. */
+div[class*="st-key-policy_content_"] textarea,
+div[class*="st-key-editable_policy_content_"] textarea {{
+    overflow-y: scroll !important;
+}}
+
+.hr-policy-headings-scroll::-webkit-scrollbar,
+.hr-policy-section-preview::-webkit-scrollbar,
+div[class*="st-key-policy_section_results_"]::-webkit-scrollbar,
+div[class*="st-key-policy_section_results_"]
+[data-testid="stVerticalBlockBorderWrapper"]::-webkit-scrollbar,
+div[class*="st-key-policy_section_results_"]
+[data-testid="stVerticalBlock"]::-webkit-scrollbar,
+div[class*="st-key-policy_content_"] textarea::-webkit-scrollbar,
+div[class*="st-key-editable_policy_content_"] textarea::-webkit-scrollbar {{
+    width: 12px !important;
+    height: 12px !important;
+}}
+
+.hr-policy-headings-scroll::-webkit-scrollbar-track,
+.hr-policy-section-preview::-webkit-scrollbar-track,
+div[class*="st-key-policy_section_results_"]::-webkit-scrollbar-track,
+div[class*="st-key-policy_section_results_"]
+[data-testid="stVerticalBlockBorderWrapper"]::-webkit-scrollbar-track,
+div[class*="st-key-policy_section_results_"]
+[data-testid="stVerticalBlock"]::-webkit-scrollbar-track,
+div[class*="st-key-policy_content_"] textarea::-webkit-scrollbar-track,
+div[class*="st-key-editable_policy_content_"] textarea::-webkit-scrollbar-track {{
+    background: #E5EAF2 !important;
+    border-radius: 999px !important;
+}}
+
+.hr-policy-headings-scroll::-webkit-scrollbar-thumb,
+.hr-policy-section-preview::-webkit-scrollbar-thumb,
+div[class*="st-key-policy_section_results_"]::-webkit-scrollbar-thumb,
+div[class*="st-key-policy_section_results_"]
+[data-testid="stVerticalBlockBorderWrapper"]::-webkit-scrollbar-thumb,
+div[class*="st-key-policy_section_results_"]
+[data-testid="stVerticalBlock"]::-webkit-scrollbar-thumb,
+div[class*="st-key-policy_content_"] textarea::-webkit-scrollbar-thumb,
+div[class*="st-key-editable_policy_content_"] textarea::-webkit-scrollbar-thumb {{
+    min-height: 44px !important;
+    background: var(--hr-primary) !important;
+    border: 2px solid #E5EAF2 !important;
+    border-radius: 999px !important;
+}}
+
+.hr-policy-headings-scroll::-webkit-scrollbar-thumb:hover,
+.hr-policy-section-preview::-webkit-scrollbar-thumb:hover,
+div[class*="st-key-policy_section_results_"]::-webkit-scrollbar-thumb:hover,
+div[class*="st-key-policy_section_results_"]
+[data-testid="stVerticalBlockBorderWrapper"]::-webkit-scrollbar-thumb:hover,
+div[class*="st-key-policy_section_results_"]
+[data-testid="stVerticalBlock"]::-webkit-scrollbar-thumb:hover,
+div[class*="st-key-policy_content_"] textarea::-webkit-scrollbar-thumb:hover,
+div[class*="st-key-editable_policy_content_"] textarea::-webkit-scrollbar-thumb:hover {{
+    background: var(--hr-primary-hover) !important;
+}}
+
+.hr-policy-headings-scroll::-webkit-scrollbar-corner,
+.hr-policy-section-preview::-webkit-scrollbar-corner,
+div[class*="st-key-policy_section_results_"]::-webkit-scrollbar-corner,
+div[class*="st-key-policy_content_"] textarea::-webkit-scrollbar-corner,
+div[class*="st-key-editable_policy_content_"] textarea::-webkit-scrollbar-corner {{
+    background: #E5EAF2 !important;
+}}
+
+/* =========================================================
    POLICY SECTION HEADING/CONTENT LAYOUT — v8.4.7
    Separator → heading → content → next separator.
 ========================================================= */
@@ -2514,7 +2759,10 @@ button[data-testid^="stBaseButton"]:disabled * {{
     margin: 4px 0 10px 0 !important;
     font-family: inherit !important;
     letter-spacing: 0 !important;
-    overflow: hidden !important;
+    max-height: 420px !important;
+    overflow-y: scroll !important;
+    overflow-x: hidden !important;
+    scrollbar-gutter: stable !important;
 }}
 
 .hr-policy-preview-section {{
@@ -3751,5 +3999,6 @@ div[class*="st-key-employee_policy_content_"]
     # Restore and save the browser's last theme selection.
     _synchronize_theme_with_browser(get_active_theme())
 
-    # Apply a browser-level fallback after the CSS is injected.
+    # Apply browser-level behavior after the CSS is injected.
     _enforce_input_value_contrast(tokens)
+    _install_native_copy_shortcut_guard()

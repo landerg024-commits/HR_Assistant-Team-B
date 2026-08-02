@@ -83,6 +83,9 @@ class Employee(TimestampMixin, Base):
     work_email: Mapped[str | None] = mapped_column(
         String(255)
     )
+    telephone_mobile_no: Mapped[str | None] = mapped_column(
+        String(50)
+    )
     job_title: Mapped[str | None] = mapped_column(
         String(150)
     )

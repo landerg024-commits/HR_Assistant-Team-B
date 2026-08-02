@@ -87,19 +87,10 @@ def _create_employee(
     )
 
 
-def _delete_request(
-    employee,
-    *,
-    confirmation: str | None = None,
-):
+def _delete_request(employee):
     return EmployeeDeleteRequest(
         company_id=employee.company_id,
         employee_id=employee.id,
-        confirmation_employee_number=(
-            confirmation
-            if confirmation is not None
-            else employee.employee_number
-        ),
         permanent_delete_acknowledged=True,
     )
 
@@ -201,7 +192,7 @@ def test_deleting_manager_clears_direct_report_manager() -> None:
         assert remaining_report.manager_id is None
 
 
-def test_wrong_confirmation_blocks_delete() -> None:
+def test_missing_acknowledgment_blocks_delete() -> None:
     factory = _factory()
 
     with factory() as session:
@@ -214,25 +205,21 @@ def test_wrong_confirmation_blocks_delete() -> None:
             username="delete.two",
             email="delete.two@example.com",
         )
-        user_id = employee.user.id
 
         try:
-            service.delete_employee_master_record(
-                _delete_request(
-                    employee,
-                    confirmation="WRONG-NUMBER",
-                ),
-                current_user_id=seed["admin_user"].id,
+            EmployeeDeleteRequest(
+                company_id=employee.company_id,
+                employee_id=employee.id,
+                permanent_delete_acknowledged=False,
             )
-        except ValueError as error:
-            assert "does not match" in str(error)
+        except Exception as error:
+            assert "permanently deleted" in str(error)
         else:
             raise AssertionError(
-                "Wrong confirmation number was accepted."
+                "Deletion acknowledgment was not required."
             )
 
         assert session.get(Employee, employee.id) is not None
-        assert session.get(User, user_id) is not None
 
 
 def test_current_admin_cannot_delete_self() -> None:
@@ -247,9 +234,6 @@ def test_current_admin_cannot_delete_self() -> None:
                 EmployeeDeleteRequest(
                     company_id=seed["company"].id,
                     employee_id=seed["admin_employee"].id,
-                    confirmation_employee_number=(
-                        seed["admin_employee"].employee_number
-                    ),
                     permanent_delete_acknowledged=True,
                 ),
                 current_user_id=seed["admin_user"].id,
@@ -313,7 +297,9 @@ def test_delete_ui_has_confirmation_and_warning() -> None:
     ).read_text(encoding="utf-8")
 
     assert "Danger Zone — Delete Employee Record" in source
-    assert "Type the exact Employee Number to confirm" in source
+    assert "Type the exact Employee Number to confirm" not in source
+    assert "Selected employee to delete" in source
     assert "Delete Employee Permanently" in source
+    assert "disabled=not acknowledged" in source
     assert "linked login account" in source
     assert "EmployeeDeleteRequest" in source

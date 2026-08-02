@@ -646,12 +646,23 @@ class HRAssistant:
             contextual_query,
             [balance.leave_type for balance in balances],
         )
+        vacation_combined = False
         if selected_type is not None:
-            balances = [
-                balance
-                for balance in balances
-                if balance.leave_type_id == selected_type.id
-            ]
+            selected_code = selected_type.code.upper()
+            if selected_code == "VACATION":
+                balances = [
+                    balance
+                    for balance in balances
+                    if balance.leave_type.code.upper()
+                    in {"VACATION", "EMERGENCY"}
+                ]
+                vacation_combined = True
+            else:
+                balances = [
+                    balance
+                    for balance in balances
+                    if balance.leave_type_id == selected_type.id
+                ]
 
         if not balances:
             return HRAssistantResponse(
@@ -670,15 +681,58 @@ class HRAssistant:
             )
         ]
 
-        for balance in balances:
-            leave_type = balance.leave_type
-            lines.append(
-                f"- **{self._display_code(leave_type)} — {leave_type.name}:** "
-                f"{self._format_days(balance.remaining_days)} available"
-                f" | {self._format_days(balance.reserved_days)} reserved"
-                f" | {self._format_days(balance.used_days)} used"
-                f" | {self._format_days(balance.allocated_days)} annual allocation"
+        if vacation_combined:
+            vacation = next(
+                balance
+                for balance in balances
+                if balance.leave_type.code.upper() == "VACATION"
             )
+            emergency = next(
+                (
+                    balance
+                    for balance in balances
+                    if balance.leave_type.code.upper() == "EMERGENCY"
+                ),
+                None,
+            )
+            emergency_remaining = (
+                emergency.remaining_days
+                if emergency is not None
+                else Decimal("0.00")
+            )
+            emergency_reserved = (
+                emergency.reserved_days
+                if emergency is not None
+                else Decimal("0.00")
+            )
+            emergency_used = (
+                emergency.used_days
+                if emergency is not None
+                else Decimal("0.00")
+            )
+            emergency_allocated = (
+                emergency.allocated_days
+                if emergency is not None
+                else Decimal("0.00")
+            )
+            lines.append(
+                f"- **VL — Vacation Leave:** "
+                f"{self._format_days(Decimal(vacation.remaining_days) + Decimal(emergency_remaining))} available"
+                f" | {self._format_days(Decimal(vacation.reserved_days) + Decimal(emergency_reserved))} reserved"
+                f" | {self._format_days(Decimal(vacation.used_days) + Decimal(emergency_used))} used"
+                f" | {self._format_days(Decimal(vacation.allocated_days) + Decimal(emergency_allocated))} annual allocation"
+                f" (includes {self._format_days(emergency_allocated)} Emergency Leave)"
+            )
+        else:
+            for balance in balances:
+                leave_type = balance.leave_type
+                lines.append(
+                    f"- **{self._display_code(leave_type)} — {leave_type.name}:** "
+                    f"{self._format_days(balance.remaining_days)} available"
+                    f" | {self._format_days(balance.reserved_days)} reserved"
+                    f" | {self._format_days(balance.used_days)} used"
+                    f" | {self._format_days(balance.allocated_days)} annual allocation"
+                )
 
         lines.append(
             (
@@ -749,9 +803,26 @@ class HRAssistant:
             ]
 
         if selected_type is not None:
+            rule_credits = Decimal(selected_type.annual_credits)
+            rule_note = ""
+            if selected_type.code.upper() == "VACATION":
+                emergency_type = next(
+                    (
+                        item
+                        for item in leave_types
+                        if item.code.upper() == "EMERGENCY"
+                    ),
+                    None,
+                )
+                if emergency_type is not None:
+                    rule_credits += Decimal(emergency_type.annual_credits)
+                    rule_note = (
+                        f" including {self._format_days(emergency_type.annual_credits)} "
+                        "Emergency Leave"
+                    )
             lines.append(
                 f"\n**{self._display_code(selected_type)} rule:** "
-                f"{self._format_days(selected_type.annual_credits)} annual credits | "
+                f"{self._format_days(rule_credits)} annual credits{rule_note} | "
                 f"{selected_type.minimum_notice_days} day(s) minimum notice | "
                 f"handover plan {selected_type.handover_plan_requirement}."
             )
@@ -852,10 +923,34 @@ class HRAssistant:
             )
 
         lines = ["Configured leave types and operational rules:"]
+        emergency_type = next(
+            (
+                item
+                for item in leave_types
+                if item.code.upper() == "EMERGENCY"
+            ),
+            None,
+        )
         for leave_type in selected:
+            display_credits = Decimal(leave_type.annual_credits)
+            detail_note = ""
+            if (
+                leave_type.code.upper() == "VACATION"
+                and emergency_type is not None
+            ):
+                display_credits += Decimal(emergency_type.annual_credits)
+                detail_note = (
+                    f" including {self._format_days(emergency_type.annual_credits)} "
+                    "Emergency Leave"
+                )
+            elif leave_type.code.upper() == "EMERGENCY":
+                detail_note = " within the Vacation entitlement"
+            elif leave_type.code.upper() == "LWOP":
+                detail_note = " and automatic when paid credits are insufficient"
+
             lines.append(
                 f"- **{self._display_code(leave_type)} — {leave_type.name}:** "
-                f"{self._format_days(leave_type.annual_credits)} annual credits | "
+                f"{self._format_days(display_credits)} annual credits{detail_note} | "
                 f"{'Paid' if leave_type.is_paid else 'Unpaid'} | "
                 f"{leave_type.minimum_notice_days} day(s) minimum notice | "
                 f"handover plan {leave_type.handover_plan_requirement}"

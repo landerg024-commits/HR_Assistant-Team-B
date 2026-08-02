@@ -93,7 +93,7 @@ def test_setting_10_changes_15_to_exactly_10(
         )
 
         assert Decimal(vacation.remaining_days) == Decimal(
-            "15.00"
+            "42.00"
         )
 
         result = service.set_credit_balance(
@@ -108,7 +108,7 @@ def test_setting_10_changes_15_to_exactly_10(
             )
         )
 
-        assert result.previous_remaining == Decimal("15.00")
+        assert result.previous_remaining == Decimal("42.00")
         assert result.new_remaining == Decimal("10.00")
         assert Decimal(
             result.balance.remaining_days
@@ -126,7 +126,7 @@ def test_setting_10_changes_15_to_exactly_10(
         )
 
         assert Decimal(entry.amount_days) == Decimal("10.00")
-        assert "Previous balance: 15.00 days" in entry.note
+        assert "Previous balance: 42.00 days" in entry.note
         assert "New balance: 10.00 days" in entry.note
         assert "Correct employee balance" not in entry.note
 
@@ -218,7 +218,7 @@ def test_same_balance_does_not_create_history(
                     employee_id=employee.id,
                     leave_type_id=vacation.leave_type_id,
                     year=date.today().year,
-                    new_remaining_days=Decimal("15.00"),
+                    new_remaining_days=Decimal("42.00"),
                     reason="No actual change",
                     created_by_user_id=seed["admin_user"].id,
                 )

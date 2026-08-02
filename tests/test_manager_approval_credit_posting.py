@@ -167,7 +167,7 @@ def test_submission_emails_manager_without_reserving_credits(
         ) == Decimal("0.00")
         assert Decimal(
             refreshed.remaining_days
-        ) == Decimal("15.00")
+        ) == Decimal("42.00")
         assert sender.messages
         assert (
             sender.messages[0].to_email
@@ -247,7 +247,7 @@ def test_manager_approval_reserves_matching_leave_type(
         ) == Decimal("1.00")
         assert Decimal(
             balance.remaining_days
-        ) == Decimal("9.00")
+        ) == Decimal("14.00")
 
 
 def test_rejected_request_never_changes_credits(
@@ -316,7 +316,7 @@ def test_rejected_request_never_changes_credits(
         ) == Decimal("0.00")
         assert Decimal(
             balance.remaining_days
-        ) == Decimal("15.00")
+        ) == Decimal("42.00")
 
 
 def test_date_reconciliation_moves_reserved_to_used_once(

@@ -25,6 +25,14 @@ def upgrade_existing_schema(engine: Engine) -> None:
                     )
                 )
 
+            if "logo_filename" not in company_columns:
+                connection.execute(
+                    text(
+                        "ALTER TABLE companies "
+                        "ADD COLUMN logo_filename VARCHAR(255)"
+                    )
+                )
+
             connection.execute(
                 text(
                     "UPDATE companies "
@@ -74,7 +82,20 @@ def upgrade_existing_schema(engine: Engine) -> None:
                     )
 
     if "employees" in table_names:
+        employee_columns = {
+            column["name"]
+            for column in inspector.get_columns("employees")
+        }
+
         with engine.begin() as connection:
+            if "telephone_mobile_no" not in employee_columns:
+                connection.execute(
+                    text(
+                        "ALTER TABLE employees "
+                        "ADD COLUMN telephone_mobile_no VARCHAR(50)"
+                    )
+                )
+
             # Earlier versions stored active/inactive. Preserve the records
             # while converting them to the new user-facing terms.
             connection.execute(
@@ -167,6 +188,148 @@ def upgrade_existing_schema(engine: Engine) -> None:
             )
 
 
+    # Smart reminder milestones and recoverable Reminder Bin.
+    inspector = inspect(engine)
+    table_names = set(inspector.get_table_names())
+
+    if "event_reminders" in table_names:
+        reminder_columns = {
+            column["name"]
+            for column in inspector.get_columns("event_reminders")
+        }
+        datetime_sql = (
+            "TIMESTAMP WITH TIME ZONE"
+            if engine.dialect.name == "postgresql"
+            else "DATETIME"
+        )
+
+        with engine.begin() as connection:
+            for column_name in (
+                "reminder_one_month_sent_at",
+                "reminder_two_weeks_sent_at",
+                "reminder_one_week_sent_at",
+                "archived_at",
+            ):
+                if column_name not in reminder_columns:
+                    connection.execute(
+                        text(
+                            "ALTER TABLE event_reminders "
+                            f"ADD COLUMN {column_name} {datetime_sql}"
+                        )
+                    )
+
+            if "archived_by_user_id" not in reminder_columns:
+                connection.execute(
+                    text(
+                        "ALTER TABLE event_reminders "
+                        "ADD COLUMN archived_by_user_id INTEGER"
+                    )
+                )
+
+            # A legacy reminder already marked sent must not generate three
+            # duplicate catch-up notifications after this upgrade.
+            connection.execute(
+                text(
+                    """
+                    UPDATE event_reminders
+                    SET reminder_one_month_sent_at = reminder_sent_at,
+                        reminder_two_weeks_sent_at = reminder_sent_at,
+                        reminder_one_week_sent_at = reminder_sent_at
+                    WHERE reminder_sent_at IS NOT NULL
+                    """
+                )
+            )
+
+
+    # Preserve reminders created in the short-lived announcement-bound design.
+    # The new architecture stores planning reminders independently, while an
+    # optional announcement link remains available after the post is prepared.
+    inspector = inspect(engine)
+    table_names = set(inspector.get_table_names())
+
+    if "announcements" in table_names and "event_reminders" in table_names:
+        announcement_columns = {
+            column["name"]
+            for column in inspector.get_columns("announcements")
+        }
+        legacy_columns = {
+            "event_start_at",
+            "event_end_at",
+            "reminder_enabled",
+            "reminder_lead_minutes",
+            "reminder_at",
+            "reminder_sent_at",
+        }
+
+        if legacy_columns.issubset(announcement_columns):
+            with engine.begin() as connection:
+                legacy_rows = connection.execute(
+                    text(
+                        """
+                        SELECT
+                            id, company_id, created_by_user_id,
+                            updated_by_user_id, title, category, summary,
+                            event_start_at, event_end_at,
+                            reminder_lead_minutes, reminder_at,
+                            reminder_sent_at
+                        FROM announcements
+                        WHERE reminder_enabled = 1
+                          AND event_start_at IS NOT NULL
+                          AND reminder_at IS NOT NULL
+                        """
+                    )
+                ).mappings().all()
+
+                for row in legacy_rows:
+                    existing = connection.execute(
+                        text(
+                            "SELECT id FROM event_reminders "
+                            "WHERE announcement_id = :announcement_id"
+                        ),
+                        {"announcement_id": int(row["id"])},
+                    ).first()
+
+                    if existing is not None:
+                        continue
+
+                    connection.execute(
+                        text(
+                            """
+                            INSERT INTO event_reminders (
+                                public_id, company_id, created_by_user_id,
+                                updated_by_user_id, title, category, notes,
+                                event_start_at, event_end_at,
+                                reminder_lead_minutes, reminder_at,
+                                reminder_sent_at, status, announcement_id
+                            ) VALUES (
+                                :public_id, :company_id, :created_by_user_id,
+                                :updated_by_user_id, :title, :category, :notes,
+                                :event_start_at, :event_end_at,
+                                :reminder_lead_minutes, :reminder_at,
+                                :reminder_sent_at, 'announcement_ready',
+                                :announcement_id
+                            )
+                            """
+                        ),
+                        {
+                            "public_id": f"REM_MIG_{int(row['id']):06d}",
+                            "company_id": int(row["company_id"]),
+                            "created_by_user_id": int(row["created_by_user_id"]),
+                            "updated_by_user_id": int(row["updated_by_user_id"]),
+                            "title": str(row["title"]),
+                            "category": "Company Event",
+                            "notes": str(row["summary"] or ""),
+                            "event_start_at": row["event_start_at"],
+                            "event_end_at": row["event_end_at"],
+                            "reminder_lead_minutes": int(
+                                row["reminder_lead_minutes"] or 10080
+                            ),
+                            "reminder_at": row["reminder_at"],
+                            "reminder_sent_at": row["reminder_sent_at"],
+                            "announcement_id": int(row["id"]),
+                        },
+                    )
+
 
     # Leave approval and date-based credit posting.
     inspector = inspect(engine)
@@ -216,6 +379,11 @@ def upgrade_existing_schema(engine: Engine) -> None:
             if engine.dialect.name == "postgresql"
             else "BOOLEAN NOT NULL DEFAULT 0"
         )
+        paid_true_sql = (
+            "TRUE"
+            if engine.dialect.name == "postgresql"
+            else "1"
+        )
         added_reservation_tracking = (
             "reservation_posted" not in request_columns
         )
@@ -254,6 +422,22 @@ def upgrade_existing_schema(engine: Engine) -> None:
                     "posted_working_days",
                     "NUMERIC(8, 2) NOT NULL DEFAULT 0",
                 ),
+                (
+                    "fallback_leave_type_id",
+                    "INTEGER",
+                ),
+                (
+                    "primary_credit_days",
+                    "NUMERIC(8, 2) NOT NULL DEFAULT 0",
+                ),
+                (
+                    "fallback_credit_days",
+                    "NUMERIC(8, 2) NOT NULL DEFAULT 0",
+                ),
+                (
+                    "lwop_days",
+                    "NUMERIC(8, 2) NOT NULL DEFAULT 0",
+                ),
             )
 
             for column_name, column_sql in additions:
@@ -265,6 +449,35 @@ def upgrade_existing_schema(engine: Engine) -> None:
                             f"{column_sql}"
                         )
                     )
+
+            # Existing requests predate the paid-credit/LWOP split. Preserve
+            # their previous behavior by assigning all paid requests to the
+            # primary leave type and all non-paid requests to LWOP.
+            connection.execute(
+                text(
+                    f"""
+                    UPDATE leave_requests
+                    SET primary_credit_days = CASE
+                            WHEN leave_type_id IN (
+                                SELECT id FROM leave_types
+                                WHERE is_paid = {paid_true_sql}
+                                  AND annual_credits > 0
+                            )
+                            THEN requested_days ELSE 0 END,
+                        fallback_credit_days = 0,
+                        lwop_days = CASE
+                            WHEN leave_type_id IN (
+                                SELECT id FROM leave_types
+                                WHERE is_paid = {paid_true_sql}
+                                  AND annual_credits > 0
+                            )
+                            THEN 0 ELSE requested_days END
+                    WHERE COALESCE(primary_credit_days, 0) = 0
+                      AND COALESCE(fallback_credit_days, 0) = 0
+                      AND COALESCE(lwop_days, 0) = 0
+                    """
+                )
+            )
 
             # v8.5.x reserved credits immediately on submission. When this
             # tracking field is first introduced, release those pending

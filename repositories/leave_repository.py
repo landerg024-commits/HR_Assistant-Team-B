@@ -185,6 +185,7 @@ class LeaveRequestRepository(BaseRepository[LeaveRequest]):
                     Employee.user
                 ),
                 joinedload(LeaveRequest.leave_type),
+                joinedload(LeaveRequest.fallback_leave_type),
             )
             .where(LeaveRequest.company_id == company_id)
         )
@@ -253,6 +254,7 @@ class LeaveRequestRepository(BaseRepository[LeaveRequest]):
                     Employee.user
                 ),
                 joinedload(LeaveRequest.leave_type),
+                joinedload(LeaveRequest.fallback_leave_type),
             )
             .where(LeaveRequest.company_id == company_id, LeaveRequest.id == request_id)
         )
@@ -286,6 +288,7 @@ class LeaveRequestRepository(BaseRepository[LeaveRequest]):
                     Employee.user
                 ),
                 joinedload(LeaveRequest.leave_type),
+                joinedload(LeaveRequest.fallback_leave_type),
             )
             .where(
                 LeaveRequest.company_id == company_id,
@@ -331,6 +334,7 @@ class LeaveRequestRepository(BaseRepository[LeaveRequest]):
                     Employee.user
                 ),
                 joinedload(LeaveRequest.leave_type),
+                joinedload(LeaveRequest.fallback_leave_type),
             )
             .where(
                 LeaveRequest.company_id == company_id,
@@ -383,6 +387,7 @@ class LeaveRequestRepository(BaseRepository[LeaveRequest]):
                     Employee.user
                 ),
                 joinedload(LeaveRequest.leave_type),
+                joinedload(LeaveRequest.fallback_leave_type),
             )
             .where(
                 LeaveRequest.company_id == company_id,

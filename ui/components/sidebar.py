@@ -5,6 +5,7 @@ import streamlit as st
 from authentication.access_control import AccessControl
 from authentication.current_user import AuthenticatedUser
 from authentication.session_manager import AuthSessionManager
+from ui.components.company_logo import render_company_sidebar_logo
 from core.constants import USER_NAVIGATION
 from ui.navigation_state import set_navigation_state
 
@@ -14,6 +15,8 @@ def render_sidebar(
     current_user: AuthenticatedUser,
 ) -> None:
     """Render employee navigation and account controls."""
+
+    render_company_sidebar_logo(current_user)
 
     st.sidebar.markdown(
         f"<div class='hr-brand'>🤖 {assistant_name}</div>",

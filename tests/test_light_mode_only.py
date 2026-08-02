@@ -104,7 +104,14 @@ def test_button_tab_and_expander_hover_are_preserved() -> None:
     assert "background: var(--hr-primary-soft)" in source
 
 
-def test_no_native_streamlit_override_is_added() -> None:
-    assert not (
-        PROJECT_ROOT / ".streamlit/config.toml"
-    ).exists()
+def test_streamlit_config_does_not_override_custom_theme() -> None:
+    config_path = PROJECT_ROOT / ".streamlit/config.toml"
+    assert config_path.exists()
+
+    config = config_path.read_text(encoding="utf-8")
+
+    assert "[client]" in config
+    assert 'toolbarMode = "viewer"' in config
+    assert "[theme]" not in config
+    assert "primaryColor" not in config
+    assert "backgroundColor" not in config

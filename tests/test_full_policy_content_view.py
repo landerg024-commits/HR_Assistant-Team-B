@@ -63,7 +63,7 @@ def test_preview_uses_full_section_html_blocks() -> None:
     assert '.replace("\\n", "<br>")' in source
 
 
-def test_policy_editor_has_no_fixed_height() -> None:
+def test_policy_editor_uses_bounded_scroll_height() -> None:
     source = _policy_source()
 
     editor_block = source.split(
@@ -74,8 +74,9 @@ def test_policy_editor_has_no_fixed_height() -> None:
         1,
     )[0]
 
-    assert "height=520" not in editor_block
-    assert "_full_content_editor_height(" in editor_block
+    assert "height=POLICY_CONTENT_EDITOR_HEIGHT" in editor_block
+    assert "_full_content_editor_height(" not in source
+    assert "Scroll inside the editor" in editor_block
 
 
 def test_textarea_line_spacing_is_compact() -> None:
@@ -90,7 +91,7 @@ def test_textarea_line_spacing_is_compact() -> None:
 def test_full_preview_is_used_in_both_upload_flows() -> None:
     source = _policy_source()
 
-    # Definition plus main upload and Upload New Version calls.
+    # Definition plus main upload, Upload New Version, and read-only library preview calls.
     assert source.count(
         "_render_full_section_preview("
-    ) == 3
+    ) == 4

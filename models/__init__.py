@@ -5,6 +5,7 @@ from models.company import Company
 from models.department import Department
 from models.employee import Employee
 from models.employee_training import EmployeeTraining
+from models.event_reminder import EventReminder
 from models.hr_policy import HRPolicy
 from models.hr_policy_document import HRPolicyDocument
 from models.hr_policy_section import HRPolicySection
@@ -23,6 +24,7 @@ __all__ = [
     "Department",
     "Employee",
     "EmployeeTraining",
+    "EventReminder",
     "HRPolicy",
     "HRPolicyDocument",
     "HRPolicySection",

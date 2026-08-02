@@ -16,6 +16,7 @@ from ui.pages.admin.admin_placeholder_page import (
 from ui.pages.admin.announcements_page import (
     render_admin_announcements_page,
 )
+from ui.pages.admin.chat_page import render_admin_chat_page
 from ui.pages.admin.company_page import render_company_page
 from ui.pages.admin.employees_page import render_employees_page
 from ui.pages.admin.policies_page import render_admin_policies_page
@@ -46,6 +47,8 @@ def render_admin_layout(
 
     if page == "Admin Dashboard":
         render_admin_dashboard_page(current_user)
+    elif page == "Chat Assistant":
+        render_admin_chat_page(current_user)
     elif page == "Company Profile":
         render_company_page(current_user)
     elif page == "Employees":

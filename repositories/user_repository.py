@@ -153,6 +153,27 @@ class UserRepository(BaseRepository[User]):
         return user
 
 
+
+
+    def list_active_admin_ids(
+        self,
+        *,
+        company_id: int,
+    ) -> list[int]:
+        """Return every active administrator account in one company."""
+
+        statement = (
+            select(User.id)
+            .where(
+                User.company_id == company_id,
+                User.is_active.is_(True),
+                User.clearance == 1,
+            )
+            .order_by(User.id)
+        )
+
+        return list(self.session.scalars(statement).all())
+
     def list_active_ids(
         self,
         *,

@@ -20,3 +20,6 @@ Thumbs.db
 
 data/dev_mail_outbox/*
 !data/dev_mail_outbox/.gitkeep
+
+# Private automatically generated cookie-signing secret.
+data/.auth_cookie_secret

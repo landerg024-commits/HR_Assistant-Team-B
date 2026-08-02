@@ -189,9 +189,9 @@ def test_headings_are_vertical_wrapped_and_unlimited() -> None:
     ).read_text(encoding="utf-8")
 
     assert "def _render_detected_headings(" in source
-    assert "<ol style=" in source
-    assert "<li style=" in source
-    assert "overflow-wrap:anywhere" in source
+    assert "<ol>{items}</ol>" in source
+    assert "<li>" in source
+    assert "hr-policy-headings-scroll" in source
     assert '" · ".join(headings)' not in source
     assert "more detected section" not in source
     assert "limit: int" not in source
@@ -215,18 +215,16 @@ def test_preview_contains_all_sections_without_limits() -> None:
     ) >= 3
 
 
-def test_editable_content_uses_dynamic_full_height() -> None:
+def test_editable_content_uses_fixed_scroll_height() -> None:
     source = (
         PROJECT_ROOT
         / "ui/pages/admin/policies_page.py"
     ).read_text(encoding="utf-8")
 
-    assert "def _full_content_editor_height(" in source
-    assert (
-        "height=_full_content_editor_height("
-        in source
-    )
-    assert "No maximum cap is used" in source
+    assert "POLICY_CONTENT_EDITOR_HEIGHT = 520" in source
+    assert "height=POLICY_CONTENT_EDITOR_HEIGHT" in source
+    assert "def _full_content_editor_height(" not in source
+    assert "Scroll inside the editor" in source
 
 
 

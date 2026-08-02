@@ -318,6 +318,7 @@ class AnnouncementService:
         announcement.is_pinned = values.is_pinned
         announcement.publish_at = values.publish_at
         announcement.expires_at = values.expires_at
+
         announcement.updated_by_user_id = actor_user_id
 
         if replacement_bytes:

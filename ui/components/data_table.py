@@ -47,6 +47,7 @@ def render_admin_table(
     min_width: int = 900,
     column_widths: Sequence[str] | None = None,
     compact: bool = False,
+    max_height: int | None = None,
 ) -> None:
     """Render a responsive wrapped table using HR theme variables.
 
@@ -56,6 +57,7 @@ def render_admin_table(
         min_width: Minimum table width before horizontal scrolling.
         column_widths: Optional CSS widths matching the column order.
         compact: Use slightly smaller padding for metadata tables.
+        max_height: Optional fixed scroll-box height for long tables.
     """
 
     if not rows:
@@ -111,16 +113,54 @@ def render_admin_table(
     horizontal_padding = "11px" if compact else "14px"
     font_size = "0.84rem" if compact else "0.88rem"
 
+    vertical_scroll_rules = ""
+
+    if max_height is not None:
+        safe_height = max(160, int(max_height))
+        vertical_scroll_rules = f"""
+            max-height: {safe_height}px;
+            overflow-y: scroll;
+            scrollbar-gutter: stable;
+            scrollbar-width: auto;
+            scrollbar-color: var(--hr-primary) #E5EAF2;
+        """
+
     html = f"""
     <style>
         .{shell_class} {{
             width: 100%;
             max-width: 100%;
             overflow-x: auto;
+            {vertical_scroll_rules}
             border: 1px solid var(--hr-border);
             border-radius: 14px;
             background: var(--hr-surface);
             box-shadow: var(--hr-shadow);
+        }}
+
+        .{shell_class}::-webkit-scrollbar {{
+            width: 12px;
+            height: 12px;
+        }}
+
+        .{shell_class}::-webkit-scrollbar-track {{
+            background: #E5EAF2;
+            border-radius: 999px;
+        }}
+
+        .{shell_class}::-webkit-scrollbar-thumb {{
+            min-height: 44px;
+            background: var(--hr-primary);
+            border: 2px solid #E5EAF2;
+            border-radius: 999px;
+        }}
+
+        .{shell_class}::-webkit-scrollbar-thumb:hover {{
+            background: var(--hr-primary-hover);
+        }}
+
+        .{shell_class}::-webkit-scrollbar-corner {{
+            background: #E5EAF2;
         }}
 
         .{table_class} {{

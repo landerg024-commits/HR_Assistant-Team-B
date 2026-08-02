@@ -18,5 +18,6 @@ class CompanyRead(CompanyCreate):
     id: int
     is_active: bool
     theme_primary_color: str = DEFAULT_COMPANY_THEME_COLOR
+    logo_filename: str | None = None
 
     model_config = ConfigDict(from_attributes=True)

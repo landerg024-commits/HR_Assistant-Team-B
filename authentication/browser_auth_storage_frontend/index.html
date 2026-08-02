@@ -1,0 +1,148 @@
+\
+    <!doctype html>
+    <html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>AI HR Browser Session Storage</title>
+        <style>
+            html, body {
+                width: 0;
+                height: 0;
+                margin: 0;
+                padding: 0;
+                overflow: hidden;
+                background: transparent;
+            }
+        </style>
+    </head>
+    <body>
+    <script>
+    (() => {
+        "use strict";
+
+        let lastSignature = null;
+        let activeStorageKey = null;
+
+        const post = (message) => {
+            window.parent.postMessage(
+                {
+                    isStreamlitMessage: true,
+                    ...message,
+                },
+                "*"
+            );
+        };
+
+        const setValue = (value) => {
+            post({
+                type: "streamlit:setComponentValue",
+                dataType: "json",
+                value,
+            });
+        };
+
+        const setHeight = () => {
+            post({
+                type: "streamlit:setFrameHeight",
+                height: 0,
+            });
+        };
+
+        const reply = (storageKey, error = null) => {
+            let value = null;
+
+            if (!error) {
+                try {
+                    value = window.localStorage.getItem(storageKey);
+                } catch (storageError) {
+                    error = String(storageError);
+                }
+            }
+
+            setValue({
+                ready: true,
+                value,
+                error,
+            });
+            setHeight();
+        };
+
+        const execute = (args) => {
+            const action = String(args.action || "read");
+            const storageKey = String(args.storage_key || "");
+            const token = (
+                typeof args.token === "string"
+                    ? args.token
+                    : null
+            );
+            const signature = JSON.stringify([
+                action,
+                storageKey,
+                token,
+            ]);
+
+            activeStorageKey = storageKey;
+
+            if (!storageKey) {
+                reply(storageKey, "Missing browser storage key.");
+                return;
+            }
+
+            if (signature === lastSignature && action !== "read") {
+                reply(storageKey);
+                return;
+            }
+
+            lastSignature = signature;
+
+            try {
+                if (action === "set") {
+                    if (!token) {
+                        throw new Error("Missing signed token.");
+                    }
+                    window.localStorage.setItem(storageKey, token);
+                } else if (action === "remove") {
+                    window.localStorage.removeItem(storageKey);
+                } else if (action !== "read") {
+                    throw new Error("Unsupported storage action.");
+                }
+
+                reply(storageKey);
+            } catch (error) {
+                reply(storageKey, String(error));
+            }
+        };
+
+        window.addEventListener("message", (event) => {
+            const data = event.data;
+
+            if (
+                !data
+                || data.type !== "streamlit:render"
+                || !data.args
+            ) {
+                return;
+            }
+
+            execute(data.args);
+        });
+
+        window.addEventListener("storage", (event) => {
+            if (
+                activeStorageKey
+                && event.key === activeStorageKey
+            ) {
+                reply(activeStorageKey);
+            }
+        });
+
+        post({
+            type: "streamlit:componentReady",
+            apiVersion: 1,
+        });
+        setHeight();
+    })();
+    </script>
+    </body>
+    </html>

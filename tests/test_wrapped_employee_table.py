@@ -48,6 +48,34 @@ def test_old_dataframe_renderer_is_removed() -> None:
 def test_table_supports_small_screens() -> None:
     source = _source()
 
-    assert "overflow-x: auto" in source
-    assert "min-width: 1900px" in source
+    assert "overflow-x: scroll" in source
+    assert "overflow-y: scroll" in source
+    assert "min-width: 1320px" in source
     assert "position: sticky" in source
+
+
+def test_employee_list_removes_duplicate_name_columns() -> None:
+    source = _source()
+    rows_block = source.split(
+        "def _employee_rows(",
+        1,
+    )[1].split(
+        "def _employee_search_value",
+        1,
+    )[0]
+
+    assert '"Full Name"' in rows_block
+    assert '"Last Name"' not in rows_block
+    assert '"First Name"' not in rows_block
+    assert '"Middle Name"' not in rows_block
+    assert '"Suffix"' not in rows_block
+    assert '"Email / Telephone / Mobile No."' in rows_block
+
+
+def test_employee_table_has_compact_five_row_viewport() -> None:
+    source = _source()
+
+    assert "max-height: 432px" in source
+    assert "height: auto" in source
+    assert "position: sticky" in source
+    assert "left: 120px" in source

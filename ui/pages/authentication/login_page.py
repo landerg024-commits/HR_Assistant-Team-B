@@ -19,30 +19,6 @@ from ui.auth_navigation import (
 )
 
 
-def _sync_public_company_code() -> None:
-    """Persist the entered company code for public-page branding."""
-
-    value = str(
-        st.session_state.get(
-            "public_company_code",
-            "",
-        )
-    ).strip().upper()
-
-    st.session_state[
-        "public_company_code"
-    ] = value
-
-    if value:
-        st.query_params[
-            PUBLIC_COMPANY_KEY
-        ] = value
-    elif PUBLIC_COMPANY_KEY in st.query_params:
-        del st.query_params[
-            PUBLIC_COMPANY_KEY
-        ]
-
-
 def render_login_page(default_company_code: str) -> None:
     """Render and process the login form."""
 
@@ -75,30 +51,32 @@ def render_login_page(default_company_code: str) -> None:
             unsafe_allow_html=True,
         )
 
-        company_code = st.text_input(
-            "Company Code",
-            value=default_company_code,
-            max_chars=50,
-            key="public_company_code",
-            on_change=_sync_public_company_code,
-            help=(
-                "The login-page accent updates to the saved company "
-                "theme after entering a valid company code."
-            ),
-        )
-
+        # Keep all credentials in one form. A Company Code widget with an
+        # on_change callback outside the form can rerun Streamlit before the
+        # submit event is processed, which makes the first click appear to fail.
         with st.form(
             "login_form",
             clear_on_submit=False,
         ):
+            company_code = st.text_input(
+                "Company Code",
+                value=default_company_code,
+                max_chars=50,
+                key="login_company_code",
+                help=(
+                    "Enter the company code assigned by your administrator."
+                ),
+            )
             login_identifier = st.text_input(
                 "Username or Email",
                 max_chars=255,
+                key="login_identifier",
             )
             password = st.text_input(
                 "Password",
                 type="password",
                 max_chars=128,
+                key="login_password",
             )
 
             submitted = st.form_submit_button(
@@ -116,6 +94,11 @@ def render_login_page(default_company_code: str) -> None:
 
         if submitted:
             try:
+                normalized_company_code = company_code.strip().upper()
+                st.session_state["public_company_code"] = (
+                    normalized_company_code
+                )
+
                 request = LoginRequest(
                     company_code=company_code,
                     login_identifier=login_identifier,

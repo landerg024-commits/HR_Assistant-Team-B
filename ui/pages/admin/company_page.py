@@ -8,6 +8,7 @@ import streamlit as st
 from pydantic import ValidationError
 
 from authentication.current_user import AuthenticatedUser
+from config.settings import get_settings
 from core.constants import DEFAULT_COMPANY_THEME_COLOR
 from database.session import SessionFactory
 from schemas.organization_schema import (
@@ -19,7 +20,64 @@ from ui.components.operation_feedback import (
     render_operation_feedback,
     set_operation_feedback,
 )
+from ui.components.responsive_image import prepare_responsive_image
 from ui.theme.color_palette import build_accent_palette
+
+
+def _logo_uploader_key(
+    company_id: int,
+) -> str:
+    """Return a reset-safe company-logo uploader key."""
+
+    nonce_key = f"_company_logo_uploader_nonce_{company_id}"
+    nonce = int(st.session_state.get(nonce_key, 0))
+
+    return f"company_logo_upload_{company_id}_{nonce}"
+
+
+def _advance_logo_uploader(
+    company_id: int,
+) -> None:
+    """Remount the uploader after saving or removing a logo."""
+
+    nonce_key = f"_company_logo_uploader_nonce_{company_id}"
+    st.session_state[nonce_key] = (
+        int(st.session_state.get(nonce_key, 0))
+        + 1
+    )
+
+
+def _render_logo_preview(
+    image_bytes: bytes,
+    *,
+    empty_message: str = "No company logo is currently configured.",
+) -> None:
+    """Display a centered preview without stretching or cropping."""
+
+    if not image_bytes:
+        st.info(empty_message)
+        return
+
+    prepared = prepare_responsive_image(
+        image_bytes,
+        max_width=420,
+        max_height=150,
+    )
+
+    if prepared is None:
+        st.warning("The selected company logo could not be previewed.")
+        return
+
+    left, center, right = st.columns(
+        [1, 3, 1],
+        vertical_alignment="center",
+    )
+
+    with center:
+        st.image(
+            prepared,
+            width=prepared.width,
+        )
 
 
 def _theme_picker_key(
@@ -122,8 +180,8 @@ def render_company_page(
 
     st.title("Company Profile")
     st.caption(
-        "Manage the company name and the accent color used throughout "
-        "the Administration and Employee portals."
+        "Manage the company name, sidebar logo, and accent color used "
+        "throughout the Administration and Employee portals."
     )
 
     render_operation_feedback(namespace="company")
@@ -138,6 +196,12 @@ def render_company_page(
         company_theme_color = (
             company.theme_primary_color
             or DEFAULT_COMPANY_THEME_COLOR
+        )
+        company_logo_filename = company.logo_filename
+        company_logo_bytes = OrganizationService(
+            session
+        ).get_company_logo_bytes(
+            current_user.company_id
         )
         company_status = (
             "Active" if company.is_active else "Inactive"
@@ -208,6 +272,135 @@ def render_company_page(
             st.error(str(error))
         except Exception:
             st.error("The company profile could not be updated.")
+
+    st.subheader("Company Logo")
+    settings = get_settings()
+    st.caption(
+        "Upload a PNG, JPG, JPEG, or WEBP logo. It will appear centered "
+        "at the top of both fixed sidebars and will keep its original "
+        "aspect ratio."
+    )
+
+    with st.container(border=True):
+        preview_column, upload_column = st.columns(
+            [1.05, 1.45],
+            gap="large",
+            vertical_alignment="top",
+        )
+
+        with preview_column:
+            st.markdown("**Current Sidebar Logo**")
+            _render_logo_preview(
+                company_logo_bytes or b""
+            )
+            st.caption(
+                "Configured"
+                if company_logo_filename
+                else "Using the default Company Logo placeholder"
+            )
+
+        with upload_column:
+            st.markdown("**Upload or Replace Logo**")
+            uploaded_logo = st.file_uploader(
+                "Company Logo File",
+                type=[
+                    "png",
+                    "jpg",
+                    "jpeg",
+                    "webp",
+                ],
+                key=_logo_uploader_key(
+                    current_user.company_id
+                ),
+                help=(
+                    "Maximum size: "
+                    f"{settings.company_logo_upload_max_mb} MB. "
+                    "The saved image is normalized to a safe PNG."
+                ),
+            )
+
+            uploaded_logo_bytes = (
+                uploaded_logo.getvalue()
+                if uploaded_logo is not None
+                else b""
+            )
+
+            if uploaded_logo_bytes:
+                st.markdown("**New Logo Preview**")
+                _render_logo_preview(
+                    uploaded_logo_bytes,
+                    empty_message="",
+                )
+
+            save_logo_column, remove_logo_column = st.columns(2)
+
+            with save_logo_column:
+                save_logo = st.button(
+                    "Save Company Logo",
+                    type="primary",
+                    use_container_width=True,
+                    disabled=uploaded_logo is None,
+                    key="save_company_logo",
+                )
+
+            with remove_logo_column:
+                remove_logo = st.button(
+                    "Remove Company Logo",
+                    use_container_width=True,
+                    disabled=not bool(company_logo_filename),
+                    key="remove_company_logo",
+                )
+
+    if save_logo:
+        try:
+            with st.spinner("Saving company logo…"):
+                with SessionFactory() as session:
+                    OrganizationService(
+                        session
+                    ).update_company_logo(
+                        company_id=current_user.company_id,
+                        file_name=uploaded_logo.name,
+                        content=uploaded_logo_bytes,
+                        content_type=uploaded_logo.type,
+                    )
+
+            _advance_logo_uploader(
+                current_user.company_id
+            )
+            set_operation_feedback(
+                "Company logo updated successfully.",
+                namespace="company",
+            )
+            st.rerun()
+
+        except ValueError as error:
+            st.error(str(error))
+        except Exception:
+            st.error("The company logo could not be updated.")
+
+    if remove_logo:
+        try:
+            with st.spinner("Removing company logo…"):
+                with SessionFactory() as session:
+                    OrganizationService(
+                        session
+                    ).remove_company_logo(
+                        current_user.company_id
+                    )
+
+            _advance_logo_uploader(
+                current_user.company_id
+            )
+            set_operation_feedback(
+                "Company logo removed. The sidebar placeholder is active.",
+                namespace="company",
+            )
+            st.rerun()
+
+        except ValueError as error:
+            st.error(str(error))
+        except Exception:
+            st.error("The company logo could not be removed.")
 
     st.subheader("Company Theme Color")
     st.caption(

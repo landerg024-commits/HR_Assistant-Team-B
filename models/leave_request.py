@@ -35,6 +35,12 @@ class LeaveRequest(TimestampMixin, Base):
         index=True,
         nullable=False,
     )
+    # Emergency leave can consume its own three-day bucket first and then
+    # fall back to the regular Vacation Leave bucket before LWOP.
+    fallback_leave_type_id: Mapped[int | None] = mapped_column(
+        ForeignKey("leave_types.id", ondelete="SET NULL"),
+        index=True,
+    )
     manager_employee_id: Mapped[int | None] = mapped_column(
         ForeignKey("employees.id", ondelete="SET NULL"),
         index=True,
@@ -43,6 +49,27 @@ class LeaveRequest(TimestampMixin, Base):
     end_date: Mapped[date] = mapped_column(Date, nullable=False)
     requested_days: Mapped[Decimal] = mapped_column(
         Numeric(8, 2), nullable=False
+    )
+    # One request may contain paid credits plus an automatic unpaid excess.
+    # These values are finalized again when the manager approves the request
+    # because another approved request may have changed the available balance.
+    primary_credit_days: Mapped[Decimal] = mapped_column(
+        Numeric(8, 2),
+        default=Decimal("0.00"),
+        server_default="0",
+        nullable=False,
+    )
+    fallback_credit_days: Mapped[Decimal] = mapped_column(
+        Numeric(8, 2),
+        default=Decimal("0.00"),
+        server_default="0",
+        nullable=False,
+    )
+    lwop_days: Mapped[Decimal] = mapped_column(
+        Numeric(8, 2),
+        default=Decimal("0.00"),
+        server_default="0",
+        nullable=False,
     )
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     handover_plan: Mapped[str | None] = mapped_column(Text)
@@ -103,4 +130,11 @@ class LeaveRequest(TimestampMixin, Base):
     manager: Mapped[Employee | None] = relationship(
         foreign_keys=[manager_employee_id], lazy="joined"
     )
-    leave_type: Mapped[LeaveType] = relationship(lazy="joined")
+    leave_type: Mapped[LeaveType] = relationship(
+        foreign_keys=[leave_type_id],
+        lazy="joined",
+    )
+    fallback_leave_type: Mapped[LeaveType | None] = relationship(
+        foreign_keys=[fallback_leave_type_id],
+        lazy="joined",
+    )

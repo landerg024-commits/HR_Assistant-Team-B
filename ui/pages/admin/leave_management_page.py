@@ -14,7 +14,9 @@ from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 from pydantic import ValidationError
+import json
 import streamlit as st
+import streamlit.components.v1 as components
 
 from authentication.current_user import AuthenticatedUser
 from config.settings import get_settings
@@ -234,6 +236,7 @@ def _compact_request_rows(requests) -> list[dict[str, str]]:
                 f"{request.end_date.isoformat()}"
             ),
             "Days": _days(request.requested_days),
+            "Credit / LWOP Split": LeaveService.allocation_breakdown(request),
             "Manager": (
                 request.manager.full_name
                 if request.manager
@@ -437,6 +440,26 @@ def _render_employee_account_summary(
         with column:
             st.metric(label, value)
 
+    with SessionFactory() as session:
+        summary = LeaveService(session).entitlement_summary(
+            employee=employee,
+            year=year,
+        )
+
+    hire_date = (
+        employee.hire_date.isoformat()
+        if employee.hire_date
+        else "Not recorded"
+    )
+    st.info(
+        f"Hire Date: {hire_date} · Completed Service: "
+        f"{summary['service_years']} year(s) · {summary['basis']}\n\n"
+        f"Automatic Entitlement: Vacation {_days(summary['vacation_total'])} "
+        f"days ({_days(summary['regular_vacation'])} regular + "
+        f"{_days(summary['emergency'])} Emergency) · "
+        f"Sick Leave {_days(summary['sick'])} days · LWOP 0 credits."
+    )
+
 
 def _render_credit_breakdown(
     employee_id: int,
@@ -480,6 +503,7 @@ def _render_credit_breakdown(
             "125px",
             "190px",
         ),
+        max_height=360,
     )
 
 
@@ -652,6 +676,7 @@ def _render_credit_history(
             "150px",
             "360px",
         ),
+        max_height=360,
     )
 
 
@@ -881,6 +906,10 @@ def _render_request_details(
                 "Value": _days(request.requested_days),
             },
             {
+                "Field": "Credit / LWOP Split",
+                "Value": LeaveService.allocation_breakdown(request),
+            },
+            {
                 "Field": "Manager / To",
                 "Value": (
                     f"{request.manager.full_name if request.manager else '—'} "
@@ -963,6 +992,7 @@ def _render_requests(
     current_user: AuthenticatedUser,
     year: int,
     requests,
+    selected_request_id: int | None = None,
 ) -> None:
     """Render filtered, view-only manager-routed leave requests."""
 
@@ -998,6 +1028,20 @@ def _render_requests(
             for request in requests
         }
     )
+
+    if selected_request_id is not None:
+        # A notification target must not be hidden by filters left from an
+        # earlier visit to the Leave Requests tab.
+        st.session_state[f"leave_request_department_{year}"] = (
+            "All Departments"
+        )
+        st.session_state[f"leave_request_type_{year}"] = (
+            "All Leave Types"
+        )
+        st.session_state[f"leave_request_status_{year}"] = (
+            "All Statuses"
+        )
+        st.session_state[f"leave_request_employee_search_{year}"] = ""
 
     department_column, type_column, status_column = st.columns(3)
 
@@ -1106,11 +1150,28 @@ def _render_requests(
         )
         for request in filtered
     }
+    option_ids = list(request_options)
+    selector_key = f"leave_request_detail_selector_{year}"
+
+    if selected_request_id is not None:
+        if selected_request_id not in request_options:
+            st.error(
+                "The notification's leave request is unavailable for "
+                "the selected company and leave year."
+            )
+            return
+
+        st.session_state[selector_key] = selected_request_id
+        st.info(
+            "Opened from Notifications. The related request is selected "
+            "below inside the Leave Requests tab."
+        )
+
     selected_id = st.selectbox(
         "View Request Details",
-        options=list(request_options),
+        options=option_ids,
         format_func=lambda value: request_options[value],
-        key=f"leave_request_detail_selector_{year}",
+        key=selector_key,
     )
 
     _render_request_details(
@@ -1279,6 +1340,14 @@ def _render_rules(
 ) -> None:
     """Render leave types, allocations, and request requirements."""
 
+    st.info(
+        "Automatic standard entitlement: Vacation Leave is 42 regular days "
+        "+ 3 Emergency Leave days (45 total), Sick Leave is 15 days, and "
+        "LWOP has zero credits. After five completed service years, Vacation "
+        "and Sick Leave each gain two days. Hire-year allocations are prorated "
+        "and balances reset every January."
+    )
+
     with SessionFactory() as session:
         leave_types = LeaveService(
             session
@@ -1312,11 +1381,23 @@ def _render_rules(
                     if item.is_active
                     else "Inactive"
                 ),
+                "Automatic Rule": (
+                    "Regular Vacation bucket; add Emergency for total entitlement; +2 after 5 years"
+                    if item.code.upper() == "VACATION"
+                    else "Included in Vacation total"
+                    if item.code.upper() == "EMERGENCY"
+                    else "+2 after 5 completed years"
+                    if item.code.upper() == "SICK"
+                    else "Automatic excess when paid credits are insufficient"
+                    if item.code.upper() == "LWOP"
+                    else "Uses configured annual credits"
+                ),
             }
             for item in leave_types
         ],
         key="leave-rules-table",
-        min_width=1200,
+        min_width=1500,
+        max_height=360,
     )
 
     add_tab, edit_tab = st.tabs(
@@ -1357,6 +1438,64 @@ def _render_rules(
         )
 
 
+def _notification_leave_request_id() -> int | None:
+    """Return a safe request ID opened from a notification."""
+
+    raw_value = st.query_params.get("leave_request_id")
+    if isinstance(raw_value, (list, tuple)):
+        raw_value = raw_value[0] if raw_value else None
+
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError):
+        return None
+
+    return value if value > 0 else None
+
+
+def _activate_leave_tab(tab_label: str) -> None:
+    """Select one visible Streamlit tab after notification navigation."""
+
+    target_label_json = json.dumps(tab_label)
+    script = (
+        "<script>"
+        "const parentDocument=window.parent.document;"
+        f"const targetLabel={target_label_json};"
+        "const activateTargetTab=()=>{"
+        "const tabs=Array.from(parentDocument.querySelectorAll("
+        "'[data-testid=\"stTabs\"] button[role=\"tab\"]'));"
+        "const target=tabs.find((tab)=>tab.textContent.trim()===targetLabel);"
+        "if(target&&target.getAttribute('aria-selected')!=='true'){target.click();}"
+        "};"
+        "activateTargetTab();"
+        "window.setTimeout(activateTargetTab,80);"
+        "window.setTimeout(activateTargetTab,220);"
+        "</script>"
+    )
+    components.html(script, height=0, width=0)
+
+
+def _notification_request_year(
+    current_user: AuthenticatedUser,
+    request_id: int | None,
+) -> int | None:
+    """Return the target request year after company-scoped validation."""
+
+    if request_id is None:
+        return None
+
+    with SessionFactory() as session:
+        request = LeaveService(session).get_request(
+            current_user.company_id,
+            request_id,
+        )
+
+    if request is None:
+        return None
+
+    return request.start_date.year
+
+
 def render_admin_leave_management_page(
     current_user: AuthenticatedUser,
 ) -> None:
@@ -1371,12 +1510,30 @@ def render_admin_leave_management_page(
         namespace="leave"
     )
 
+    notification_request_id = _notification_leave_request_id()
+    notification_year = _notification_request_year(
+        current_user,
+        notification_request_id,
+    )
+
+    if notification_request_id is not None and notification_year is None:
+        st.error(
+            "The leave request linked to this notification is unavailable."
+        )
+
+    if notification_year is not None:
+        st.session_state["leave_management_year"] = notification_year
+
     selected_year = int(
         st.number_input(
             "Leave Year",
             min_value=2000,
             max_value=2200,
-            value=_current_leave_year(),
+            value=(
+                notification_year
+                if notification_year is not None
+                else _current_leave_year()
+            ),
             step=1,
             key="leave_management_year",
             help=(
@@ -1428,7 +1585,11 @@ def render_admin_leave_management_page(
             current_user,
             selected_year,
             requests,
+            selected_request_id=notification_request_id,
         )
 
     with rules_tab:
         _render_rules(current_user)
+
+    if notification_request_id is not None:
+        _activate_leave_tab("Leave Requests")

@@ -25,7 +25,13 @@ from ui.components.operation_feedback import (
 )
 
 
-MAX_INLINE_CONTENT_CHARACTERS = 100_000
+POLICY_CONTENT_VIEWER_HEIGHT = 460
+POLICY_CONTENT_EDITOR_HEIGHT = 520
+POLICY_SECTION_RESULTS_HEIGHT = 430
+POLICY_VERSION_HISTORY_HEIGHT = 340
+POLICY_LIBRARY_TABLE_HEIGHT = 390
+
+_POLICY_LIBRARY_PREVIEW_STATE_KEY = "_policy_library_preview_policy_id"
 
 _POLICY_UPLOAD_NONCE_STATE_KEY = "_policy_upload_nonce"
 _POLICY_UPLOAD_WIDGET_PREFIX = "policy_upload_"
@@ -221,7 +227,11 @@ def _unique_preview_headings(
 def _render_detected_headings(
     sections,
 ) -> None:
-    """Render all headings as a compact wrapped numbered list."""
+    """Render every detected heading inside a bounded scroll box.
+
+    The complete heading list remains available, but a large policy no
+    longer stretches the whole page vertically.
+    """
 
     headings = _unique_preview_headings(sections)
 
@@ -230,8 +240,7 @@ def _render_detected_headings(
 
     items = "".join(
         (
-            "<li style='margin:0 0 3px 0;"
-            "line-height:1.28;overflow-wrap:anywhere;'>"
+            "<li>"
             f"{html.escape(heading)}"
             "</li>"
         )
@@ -240,18 +249,19 @@ def _render_detected_headings(
 
     st.markdown(
         (
-            "<div style='background:#F8F9FC;"
-            "border:1px solid #D8DEEA;border-radius:10px;"
-            "padding:12px 14px;margin:5px 0 10px 0;'>"
-            "<div style='font-weight:700;color:#10172A;"
-            "margin-bottom:6px;'>"
+            "<div class='hr-policy-headings-preview'>"
+            "<div class='hr-policy-headings-title'>"
             f"Detected headings ({len(headings)})"
             "</div>"
-            "<ol style='margin:0;padding-left:22px;"
-            "color:#10172A;line-height:1.28;'>"
-            f"{items}</ol></div>"
+            "<div class='hr-policy-headings-scroll'>"
+            f"<ol>{items}</ol>"
+            "</div>"
+            "</div>"
         ),
         unsafe_allow_html=True,
+    )
+    st.caption(
+        "Scroll inside the headings box to review the complete list."
     )
 
 
@@ -311,10 +321,10 @@ def _policy_text_to_html(value: str) -> str:
 def _render_full_section_preview(
     sections,
 ) -> None:
-    """Render every heading together with its own content.
+    """Render all extracted sections inside a bounded scroll viewer.
 
-    Explicit HTML breaks stop long text and blank lines from escaping the
-    dark preview surface and inheriting the page's dark text color.
+    Every heading and line remains available. The fixed-height viewer keeps
+    large files from making the Policies page excessively long.
     """
 
     if not sections:
@@ -363,6 +373,9 @@ def _render_full_section_preview(
         )
 
     st.markdown("**Extracted Text Preview**")
+    st.caption(
+        "Scroll inside the preview box to review all extracted text."
+    )
     st.markdown(
         (
             "<div class='hr-policy-section-preview'>"
@@ -373,31 +386,6 @@ def _render_full_section_preview(
         unsafe_allow_html=True,
     )
 
-
-
-def _full_content_editor_height(
-    content: str,
-) -> int:
-    """Estimate enough height to show the complete editable content.
-
-    Long lines are counted as wrapped display lines. No maximum cap is used,
-    so the administrator can review the entire content without an internal
-    textarea scrollbar.
-    """
-
-    raw_lines = content.splitlines() or [""]
-    display_lines = 0
-
-    for line in raw_lines:
-        display_lines += max(
-            1,
-            (len(line) + 124) // 125,
-        )
-
-    return max(
-        520,
-        86 + (display_lines * 19),
-    )
 
 
 def _format_size(size_bytes: int | None) -> str:
@@ -450,19 +438,50 @@ def _policy_rows(policies, document_map, *, include_bin_date: bool = False):
     return rows
 
 
-def _render_policy_table(policies, document_map, *, key: str, include_bin_date: bool = False) -> None:
-    rows = _policy_rows(policies, document_map, include_bin_date=include_bin_date)
+def _render_policy_table(
+    policies,
+    document_map,
+    *,
+    key: str,
+    include_bin_date: bool = False,
+    max_height: int | None = POLICY_LIBRARY_TABLE_HEIGHT,
+) -> None:
+    """Render a bounded policy list with visible table scrollbars."""
+
+    rows = _policy_rows(
+        policies,
+        document_map,
+        include_bin_date=include_bin_date,
+    )
+
     if not rows:
-        st.info("No policy versions are available in this section.")
+        st.info(
+            "No policy versions are available in this section."
+        )
         return
-    widths = ("115px", "330px", "190px", "100px", "120px", "190px")
+
+    widths = (
+        "115px",
+        "330px",
+        "190px",
+        "100px",
+        "120px",
+        "190px",
+    )
+
     if include_bin_date:
         widths = (*widths, "190px")
+
     render_admin_table(
         rows,
         key=key,
-        min_width=1180 if not include_bin_date else 1340,
+        min_width=(
+            1180
+            if not include_bin_date
+            else 1340
+        ),
         column_widths=widths,
+        max_height=max_height,
     )
 
 
@@ -505,15 +524,17 @@ def _render_overview(view: PolicyAdminView) -> None:
 
 
 def _render_extracted_content(view: PolicyAdminView) -> None:
+    """Show complete extracted text in a fixed-height scroll viewer."""
+
     text = view.extracted_text or ""
-    st.caption(f"{len(text):,} extracted characters")
-    shown = text[:MAX_INLINE_CONTENT_CHARACTERS]
-    if len(text) > MAX_INLINE_CONTENT_CHARACTERS:
-        st.warning("The viewer is truncated. Download the complete extracted text below.")
+    st.caption(
+        f"{len(text):,} extracted characters · "
+        "scroll inside the box to review the complete content"
+    )
     st.text_area(
         "Extracted Policy Content",
-        value=shown,
-        height=500,
+        value=text,
+        height=POLICY_CONTENT_VIEWER_HEIGHT,
         disabled=True,
         key=f"policy_content_{view.policy.id}",
     )
@@ -528,6 +549,8 @@ def _render_extracted_content(view: PolicyAdminView) -> None:
 
 
 def _render_sections(view: PolicyAdminView) -> None:
+    """Render searchable policy sections in a bounded scroll box."""
+
     section_search = st.text_input(
         "Find in Sections",
         placeholder="Search a heading or extracted text...",
@@ -542,11 +565,34 @@ def _render_sections(view: PolicyAdminView) -> None:
             or section_search in section.text.lower()
         )
     ]
-    st.caption(f"Showing {len(matches)} of {len(view.sections)} sections")
-    for section in matches:
-        page = f" · Page {section.page_number}" if section.page_number else ""
-        with st.expander(f"{section.sequence_number}. {section.heading}{page}"):
-            st.write(section.text)
+    st.caption(
+        f"Showing {len(matches)} of {len(view.sections)} sections · "
+        "scroll inside the results box when more sections are available"
+    )
+
+    if not matches:
+        st.info("No searchable sections match the current search.")
+        return
+
+    with st.container(
+        key=(
+            f"policy_section_results_"
+            f"{view.policy.id}"
+        ),
+        height=POLICY_SECTION_RESULTS_HEIGHT,
+        border=True,
+    ):
+        for section in matches:
+            page = (
+                f" · Page {section.page_number}"
+                if section.page_number
+                else ""
+            )
+            with st.expander(
+                f"{section.sequence_number}. "
+                f"{section.heading}{page}"
+            ):
+                st.write(section.text)
 
 
 def _render_original_file(current_user: AuthenticatedUser, view: PolicyAdminView) -> None:
@@ -597,12 +643,19 @@ def _version_rows(current_user: AuthenticatedUser, title: str):
 
 
 def _render_version_history(current_user: AuthenticatedUser, view: PolicyAdminView) -> None:
+    """Render complete version history in a fixed-height table."""
+
     rows = _version_rows(current_user, view.policy.title)
+    st.caption(
+        f"{len(rows)} version(s) · scroll inside the table when the "
+        "history exceeds the fixed view"
+    )
     render_admin_table(
         rows,
         key=f"version-history-{view.policy.id}",
         min_width=900,
         column_widths=("120px", "100px", "300px", "190px", "110px"),
+        max_height=POLICY_VERSION_HISTORY_HEIGHT,
     )
 
 
@@ -612,17 +665,27 @@ def _render_move_to_bin(current_user: AuthenticatedUser, view: PolicyAdminView) 
         "This keeps the file and all extracted content in the Bin. "
         "Employees and Policy Q&A will no longer see this version."
     )
+    st.info(
+        f"Selected target: {public_id} · {view.policy.title} "
+        f"v{view.policy.version}"
+    )
     with st.form(f"move_policy_bin_{view.policy.id}"):
-        confirmation = st.text_input(
-            "Type the exact Policy ID to confirm",
-            placeholder=public_id,
-            max_chars=30,
+        acknowledged = st.checkbox(
+            "I confirm that the selected policy version above should "
+            "be moved to the Bin."
         )
         submitted = st.form_submit_button(
             "Move Policy Version to Bin",
             use_container_width=True,
         )
     if submitted:
+        if not acknowledged:
+            st.error(
+                "Select the confirmation checkbox before moving the "
+                "policy to the Bin."
+            )
+            return
+
         try:
             with st.spinner("Moving policy version to Bin…"):
                 with SessionFactory() as session:
@@ -630,7 +693,7 @@ def _render_move_to_bin(current_user: AuthenticatedUser, view: PolicyAdminView) 
                         company_id=current_user.company_id,
                         policy_id=view.policy.id,
                         user_id=current_user.user_id,
-                        confirmation_public_id=confirmation,
+                        confirmation_public_id=public_id,
                     )
             set_operation_feedback(
                 f"Moved {_policy_id(moved)} · {moved.title} v{moved.version} to Bin.",
@@ -874,13 +937,13 @@ def _render_edit_policy_details(
         content = st.text_area(
             "Editable Policy Content *",
             value=view.extracted_text,
-            height=_full_content_editor_height(
-                view.extracted_text
-            ),
+            height=POLICY_CONTENT_EDITOR_HEIGHT,
+            key=f"editable_policy_content_{policy.id}",
             help=(
                 "This approved searchable text is used by the content "
-                "viewer and Policy Q&A. Editing it does not replace "
-                "the original uploaded file."
+                "viewer and Policy Q&A. Scroll inside the editor to review "
+                "the complete content. Editing it does not replace the "
+                "original uploaded file."
             ),
         )
         st.caption(
@@ -1086,6 +1149,7 @@ def _render_upload_new_version(
             "130px",
         ),
         compact=True,
+        max_height=POLICY_VERSION_HISTORY_HEIGHT,
     )
 
     with st.expander(
@@ -1234,8 +1298,135 @@ def _render_permanent_delete(
         st.error(str(error))
 
 
-def _render_manage(current_user: AuthenticatedUser, policies) -> None:
+def _render_policy_library(
+    current_user: AuthenticatedUser,
+    policies,
+    document_map,
+) -> None:
+    """Render the active policy list and an on-demand content preview.
+
+    The library stays read-only. A policy preview is loaded only after the
+    administrator explicitly clicks the preview button, so the page does not
+    automatically expand into a long document viewer.
+    """
+
+    st.subheader("Policy Library")
+    st.caption(
+        "Review all active policy versions. The table stays inside a "
+        "fixed-height scroll box. Select one policy and click Preview to "
+        "read its approved extracted content below."
+    )
+
+    _render_policy_table(
+        policies,
+        document_map,
+        key="policy-list",
+        max_height=POLICY_LIBRARY_TABLE_HEIGHT,
+    )
+
+    if not policies:
+        st.session_state.pop(
+            _POLICY_LIBRARY_PREVIEW_STATE_KEY,
+            None,
+        )
+        return
+
+    options = {
+        f"{_policy_id(policy)} · {policy.title} v{policy.version}": policy.id
+        for policy in policies
+    }
+    selected_label = st.selectbox(
+        "Select Policy to Preview",
+        options=list(options),
+        key="policy_library_preview_selector",
+    )
+    selected_id = options[selected_label]
+
+    preview_column, close_column = st.columns([3, 1])
+
+    with preview_column:
+        preview_clicked = st.button(
+            "Preview Selected Policy",
+            type="primary",
+            use_container_width=True,
+            key="preview_selected_policy",
+        )
+
+    with close_column:
+        close_clicked = st.button(
+            "Close Preview",
+            use_container_width=True,
+            key="close_policy_library_preview",
+        )
+
+    if preview_clicked:
+        st.session_state[
+            _POLICY_LIBRARY_PREVIEW_STATE_KEY
+        ] = selected_id
+
+    if close_clicked:
+        st.session_state.pop(
+            _POLICY_LIBRARY_PREVIEW_STATE_KEY,
+            None,
+        )
+
+    preview_id = st.session_state.get(
+        _POLICY_LIBRARY_PREVIEW_STATE_KEY
+    )
+    active_ids = {policy.id for policy in policies}
+
+    if preview_id not in active_ids:
+        st.session_state.pop(
+            _POLICY_LIBRARY_PREVIEW_STATE_KEY,
+            None,
+        )
+        preview_id = None
+
+    if preview_id is None:
+        st.info(
+            "Select a policy and click Preview Selected Policy to show "
+            "its content here."
+        )
+        return
+
+    try:
+        with SessionFactory() as session:
+            view = PolicyService(
+                session
+            ).get_admin_policy_view(
+                company_id=current_user.company_id,
+                policy_id=int(preview_id),
+            )
+    except (TypeError, ValueError) as error:
+        st.session_state.pop(
+            _POLICY_LIBRARY_PREVIEW_STATE_KEY,
+            None,
+        )
+        st.error(str(error))
+        return
+
+    document = view.document
+    filename = (
+        document.original_filename
+        if document is not None
+        else view.policy.title
+    )
+
     st.divider()
+    st.subheader("Policy Content Preview")
+    st.caption(
+        f"{_policy_id(view.policy)} · {view.policy.title} "
+        f"v{view.policy.version} · {len(view.sections)} searchable "
+        f"sections · {filename}"
+    )
+
+    # Match the bounded preview used by Upload Policy File. No edit, file,
+    # history, or Bin actions are rendered in this read-only library view.
+    _render_detected_headings(view.sections)
+    _render_full_section_preview(view.sections)
+
+
+def _render_manage(current_user: AuthenticatedUser, policies) -> None:
     st.subheader("Manage Existing Policy")
     if not policies:
         st.info("Upload a policy before managing existing versions.")
@@ -1379,7 +1570,7 @@ def _render_bin(current_user: AuthenticatedUser, policies, document_map) -> None
 
 
 def render_admin_policies_page(current_user: AuthenticatedUser) -> None:
-    """Render active policies, integrated upload preview, and Bin."""
+    """Render peer policy library, upload, management, and Bin tabs."""
 
     st.title("Policies")
     st.caption(
@@ -1402,10 +1593,35 @@ def render_admin_policies_page(current_user: AuthenticatedUser) -> None:
             policies=bin_policies,
         )
 
-    policies_tab, bin_tab = st.tabs(["Policies", f"Bin ({len(bin_policies)})"])
+    policies_tab, upload_tab, manage_tab, bin_tab = st.tabs([
+        "Policies",
+        "Upload Policy File",
+        "Manage Existing Policy",
+        f"Bin ({len(bin_policies)})",
+    ])
+
     with policies_tab:
-        _render_policy_table(active, active_documents, key="policy-list")
-        _render_upload(current_user, all_versions)
-        _render_manage(current_user, active)
+        _render_policy_library(
+            current_user,
+            active,
+            active_documents,
+        )
+
+    with upload_tab:
+        _render_upload(
+            current_user,
+            all_versions,
+        )
+
+    with manage_tab:
+        _render_manage(
+            current_user,
+            active,
+        )
+
     with bin_tab:
-        _render_bin(current_user, bin_policies, bin_documents)
+        _render_bin(
+            current_user,
+            bin_policies,
+            bin_documents,
+        )

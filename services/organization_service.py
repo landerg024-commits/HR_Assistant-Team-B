@@ -12,9 +12,13 @@ Important rules:
 
 from sqlalchemy.orm import Session
 
+from config.settings import get_settings
 from models.company import Company
 from models.department import Department
 from models.role import Role
+from modules.company_branding.company_logo_storage import (
+    CompanyLogoStorage,
+)
 from repositories.company_repository import CompanyRepository
 from repositories.department_repository import DepartmentRepository
 from repositories.role_repository import RoleRepository
@@ -29,11 +33,24 @@ from schemas.organization_schema import (
 class OrganizationService:
     """Manage company-scoped organization settings."""
 
-    def __init__(self, session: Session) -> None:
+    def __init__(
+        self,
+        session: Session,
+        logo_storage: CompanyLogoStorage | None = None,
+    ) -> None:
         self.session = session
         self.company_repository = CompanyRepository(session)
         self.department_repository = DepartmentRepository(session)
         self.role_repository = RoleRepository(session)
+
+        settings = get_settings()
+        self.logo_storage = (
+            logo_storage
+            or CompanyLogoStorage(
+                settings.company_logo_upload_dir,
+                max_mb=settings.company_logo_upload_max_mb,
+            )
+        )
 
     def get_company(self, company_id: int) -> Company:
         """Return the current company or raise a readable error."""
@@ -116,6 +133,73 @@ class OrganizationService:
 
         if company is None:
             raise ValueError("The company record was not found.")
+
+        return company
+
+    def get_company_logo_bytes(
+        self,
+        company_id: int,
+    ) -> bytes | None:
+        """Read the current company's private sidebar logo."""
+
+        company = self.get_company(company_id)
+
+        return self.logo_storage.read(
+            company_id=company.id,
+            filename=company.logo_filename,
+        )
+
+    def update_company_logo(
+        self,
+        *,
+        company_id: int,
+        file_name: str,
+        content: bytes,
+        content_type: str | None = None,
+    ) -> Company:
+        """Validate, normalize, store, and reference one company logo."""
+
+        self.get_company(company_id)
+        stored_filename = self.logo_storage.save(
+            company_id=company_id,
+            file_name=file_name,
+            content=content,
+            content_type=content_type,
+        )
+        company = self.company_repository.update_logo_filename(
+            company_id=company_id,
+            logo_filename=stored_filename,
+        )
+
+        if company is None:
+            self.logo_storage.delete(
+                company_id=company_id,
+                filename=stored_filename,
+            )
+            raise ValueError("The company record was not found.")
+
+        return company
+
+    def remove_company_logo(
+        self,
+        company_id: int,
+    ) -> Company:
+        """Remove only the current company's logo and database reference."""
+
+        current = self.get_company(company_id)
+        previous_filename = current.logo_filename
+        company = self.company_repository.update_logo_filename(
+            company_id=company_id,
+            logo_filename=None,
+        )
+
+        if company is None:
+            raise ValueError("The company record was not found.")
+
+        self.logo_storage.delete(
+            company_id=company_id,
+            filename=previous_filename,
+        )
 
         return company
 

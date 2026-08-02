@@ -27,7 +27,7 @@ class Settings(BaseSettings):
 
     # Application identity and runtime behavior.
     app_name: str = "AI HR Assistant"
-    app_version: str = "0.8.8.3"
+    app_version: str = "0.8.8.23"
     environment: str = "development"
     debug: bool = True
 
@@ -42,11 +42,13 @@ class Settings(BaseSettings):
     company_name: str = "Sample Company"
     assistant_name: str = "AI HR Assistant"
 
-    # Signed browser authentication cookie.
-    # Set AUTH_COOKIE_SECRET to a long random value in production.
-    # When omitted, a process-only secret keeps refresh login working until
-    # the Streamlit server restarts.
+    # Signed browser authentication token.
+    # The signed token is stored in browser localStorage so it survives F5
+    # refreshes without depending on asynchronous third-party cookie APIs.
+    # Set AUTH_COOKIE_SECRET to a long random value in production. When
+    # omitted, a private local secret file is created automatically.
     auth_cookie_secret: SecretStr | None = None
+    auth_cookie_secret_file: str = "data/.auth_cookie_secret"
     auth_cookie_hours: int = 12
 
     # Localhost uses HTTP, so secure=False is required during development.
@@ -68,6 +70,10 @@ class Settings(BaseSettings):
     # Company announcement cover images.
     announcement_upload_dir: str = "data/uploads/announcements"
     announcement_upload_max_mb: int = 5
+
+    # Company-scoped sidebar logos. Uploaded files are normalized to PNG.
+    company_logo_upload_dir: str = "data/uploads/company_logos"
+    company_logo_upload_max_mb: int = 5
 
     display_timezone: str = "Asia/Manila"
 

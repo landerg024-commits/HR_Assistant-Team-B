@@ -48,6 +48,13 @@ class Company(TimestampMixin, Base):
         nullable=False,
     )
 
+    # Canonical company-scoped logo filename stored under the private
+    # company-logo upload directory. The file is never served publicly.
+    logo_filename: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+
     is_active: Mapped[bool] = mapped_column(
         Boolean,
         default=True,

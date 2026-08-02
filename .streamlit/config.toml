@@ -1,0 +1,4 @@
+[client]
+# Hide Streamlit developer options such as Clear caches.
+# This leaves Ctrl/Cmd+C entirely to the browser's normal Copy action.
+toolbarMode = "viewer"

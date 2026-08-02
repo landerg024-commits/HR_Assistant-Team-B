@@ -193,7 +193,7 @@ def test_app_applies_public_company_color_to_auth_pages() -> None:
     assert "render_reset_password_layout(" in source
 
 
-def test_login_company_code_updates_public_branding_state() -> None:
+def test_login_company_code_is_inside_single_submit_form() -> None:
     source = (
         PROJECT_ROOT
         / "ui/pages/authentication/login_page.py"
@@ -207,14 +207,10 @@ def test_login_company_code_updates_public_branding_state() -> None:
         '            "login_form"'
     )
 
-    assert company_input_position < form_position
-    assert 'key="public_company_code"' in source
-    assert "on_change=_sync_public_company_code" in source
-    assert "PUBLIC_COMPANY_KEY" in source
-    assert (
-        "The login-page accent updates"
-        in source
-    )
+    assert form_position < company_input_position
+    assert 'key="login_company_code"' in source
+    assert "on_change=_sync_public_company_code" not in source
+    assert "all credentials in one form" in source
 
 
 def test_auth_layout_uses_resolved_company_name() -> None:

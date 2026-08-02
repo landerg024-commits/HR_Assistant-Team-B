@@ -45,7 +45,7 @@ def test_heading_and_body_share_one_section() -> None:
         "def _render_full_section_preview(",
         1,
     )[1].split(
-        "def _full_content_editor_height(",
+        "def _format_size(",
         1,
     )[0]
 
@@ -119,4 +119,4 @@ def test_full_unlimited_preview_remains() -> None:
     assert "more detected section" not in source
     assert source.count(
         "_render_full_section_preview("
-    ) == 3
+    ) == 4

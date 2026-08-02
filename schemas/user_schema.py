@@ -41,6 +41,10 @@ class EmployeeCreate(BaseModel):
     last_name: str = Field(min_length=1, max_length=100)
     suffix: str | None = Field(default=None, max_length=30)
     work_email: EmailStr | None = None
+    telephone_mobile_no: str | None = Field(
+        default=None,
+        max_length=50,
+    )
     job_title: str | None = Field(default=None, max_length=150)
     hire_date: date | None = None
     employment_status: str = "employed"

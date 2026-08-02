@@ -122,3 +122,5 @@ class AnnouncementRepository(
         return list(
             self.session.scalars(statement).all()
         )
+
+

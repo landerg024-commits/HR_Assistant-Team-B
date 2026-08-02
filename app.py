@@ -34,6 +34,7 @@ from ui.layouts.auth_layout import (
 from ui.layouts.user_layout import render_user_layout
 from ui.session_state import initialize_session_state
 from services.announcement_service import AnnouncementService
+from services.event_reminder_service import EventReminderService
 from services.leave_service import LeaveService
 from services.organization_service import OrganizationService
 from ui.theme.theme_loader import apply_theme
@@ -135,13 +136,20 @@ def _load_company_theme_color(
 def _reconcile_announcements(
     company_id: int,
 ) -> None:
-    """Publish due announcements and create employee notifications."""
+    """Publish due announcements and send due admin planning reminders."""
 
     try:
         with SessionFactory() as session:
             AnnouncementService(
                 session
             ).reconcile_publications(
+                company_id=company_id
+            )
+
+        with SessionFactory() as session:
+            EventReminderService(
+                session
+            ).reconcile_due(
                 company_id=company_id
             )
     except Exception:
@@ -156,9 +164,11 @@ def _reconcile_leave_credits(
 
     try:
         with SessionFactory() as session:
-            LeaveService(
-                session
-            ).reconcile_approved_leave(
+            service = LeaveService(session)
+            # Creates the new calendar-year balances every January and also
+            # applies service-anniversary entitlement increases when due.
+            service.ensure_current_year_balances(company_id)
+            service.reconcile_approved_leave(
                 company_id=company_id
             )
     except Exception:
@@ -221,9 +231,9 @@ def main() -> None:
         )
         return
 
-    # Browser refresh creates a new Streamlit session. Restore the
-    # signed cookie synchronously before deciding to show login.
-    AuthSessionManager.restore_from_cookie()
+    # Browser refresh creates a new Streamlit session. Wait for the
+    # persistent browser token before deciding to show Login.
+    AuthSessionManager.restore_from_browser()
 
     if not AuthSessionManager.is_authenticated():
         apply_theme(
@@ -237,6 +247,10 @@ def main() -> None:
         return
 
     current_user = AuthSessionManager.get_current_user()
+
+    # A successful form submit enters the portal immediately. Browser-token
+    # persistence is completed non-blockingly from the protected page.
+    AuthSessionManager.flush_pending_browser_token()
 
     if current_user is None:
         AuthSessionManager.logout()

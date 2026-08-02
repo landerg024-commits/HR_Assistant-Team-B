@@ -99,3 +99,22 @@ class CompanyRepository(BaseRepository[Company]):
         self.session.refresh(company)
 
         return company
+
+    def update_logo_filename(
+        self,
+        *,
+        company_id: int,
+        logo_filename: str | None,
+    ) -> Company | None:
+        """Update only the private company-logo reference."""
+
+        company = self.get_by_id(company_id)
+
+        if company is None:
+            return None
+
+        company.logo_filename = logo_filename
+        self.session.commit()
+        self.session.refresh(company)
+
+        return company

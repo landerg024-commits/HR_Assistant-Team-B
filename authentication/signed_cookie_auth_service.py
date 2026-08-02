@@ -10,13 +10,13 @@ Design:
 - No additional database table is required.
 
 A configured AUTH_COOKIE_SECRET is recommended for production. When it is
-not configured, a random process-only secret is generated. That still
-preserves authentication across browser refreshes while the Streamlit
-server remains running, but intentionally requires login after a server
-restart.
+not configured, a private local signing-secret file is created. This keeps
+a valid browser login across both page refreshes and Streamlit restarts.
 """
 
 import hashlib
+import os
+from pathlib import Path
 import secrets
 from typing import Any
 
@@ -32,9 +32,101 @@ from config.settings import get_settings
 from repositories.user_repository import UserRepository
 
 
-_PROCESS_COOKIE_SECRET = secrets.token_urlsafe(48)
+_EMERGENCY_PROCESS_COOKIE_SECRET = secrets.token_urlsafe(48)
 _TOKEN_SALT = "ai-hr-assistant-auth-cookie-v1"
 _TOKEN_VERSION = 1
+
+
+def _clean_configured_secret(value: str | None) -> str | None:
+    """Return a usable configured secret or None for an empty value."""
+
+    if not isinstance(value, str):
+        return None
+
+    cleaned = value.strip()
+
+    return cleaned if len(cleaned) >= 32 else None
+
+
+def _read_secret_file(path: Path) -> str | None:
+    """Read a valid local cookie secret without exposing its value."""
+
+    try:
+        value = path.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeError):
+        return None
+
+    return value if len(value) >= 32 else None
+
+
+def _load_or_create_local_secret(path_value: str) -> str:
+    """Load or atomically create the private local signing secret."""
+
+    path = Path(path_value).expanduser()
+    existing = _read_secret_file(path)
+
+    if existing is not None:
+        return existing
+
+    generated = secrets.token_urlsafe(64)
+
+    try:
+        path.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        descriptor = os.open(
+            str(path),
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            0o600,
+        )
+
+        with os.fdopen(
+            descriptor,
+            "w",
+            encoding="utf-8",
+        ) as secret_file:
+            secret_file.write(generated)
+            secret_file.write("\n")
+
+        try:
+            path.chmod(0o600)
+        except OSError:
+            # Windows may not apply POSIX permissions; the file remains
+            # private inside the application data directory.
+            pass
+
+        return generated
+
+    except FileExistsError:
+        # Another Streamlit execution context created it first.
+        return (
+            _read_secret_file(path)
+            or _EMERGENCY_PROCESS_COOKIE_SECRET
+        )
+    except OSError:
+        # Authentication stays usable even on read-only filesystems, but
+        # server-restart persistence then requires AUTH_COOKIE_SECRET.
+        return _EMERGENCY_PROCESS_COOKIE_SECRET
+
+
+def resolve_auth_cookie_secret(settings) -> str:
+    """Resolve configured or persistent local cookie-signing material."""
+
+    configured = (
+        settings.auth_cookie_secret.get_secret_value()
+        if settings.auth_cookie_secret is not None
+        else None
+    )
+    cleaned = _clean_configured_secret(configured)
+
+    if cleaned is not None:
+        return cleaned
+
+    return _load_or_create_local_secret(
+        settings.auth_cookie_secret_file
+    )
 
 
 class SignedCookieAuthenticationError(ValueError):
@@ -56,16 +148,9 @@ class SignedCookieAuthService:
 
         settings = get_settings()
 
-        configured_secret = (
-            settings.auth_cookie_secret.get_secret_value()
-            if settings.auth_cookie_secret is not None
-            else None
-        )
-
         self.secret_key = (
             secret_key
-            or configured_secret
-            or _PROCESS_COOKIE_SECRET
+            or resolve_auth_cookie_secret(settings)
         )
 
         self.max_age_seconds = (

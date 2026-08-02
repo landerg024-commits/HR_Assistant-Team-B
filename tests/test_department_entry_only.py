@@ -68,7 +68,7 @@ def test_admin_router_has_no_departments_route() -> None:
 def test_department_is_entered_in_add_and_edit_employee() -> None:
     source = _read("ui/pages/admin/employees_page.py")
 
-    assert source.count('st.text_input(\n                "Department"') == 2
+    assert source.count('department_name = st.text_input(') == 2
     assert "Matching is case-insensitive" in source
     assert "reused case-insensitively" in source
     assert "department records automatically" in source

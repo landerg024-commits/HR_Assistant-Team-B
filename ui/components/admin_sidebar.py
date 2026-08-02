@@ -8,11 +8,13 @@ import streamlit as st
 
 from authentication.current_user import AuthenticatedUser
 from authentication.session_manager import AuthSessionManager
+from ui.components.company_logo import render_company_sidebar_logo
 from ui.navigation_state import set_navigation_state
 
 
 ADMIN_NAVIGATION = (
     "Admin Dashboard",
+    "Chat Assistant",
     "Company Profile",
     "Employees",
     "Policies",
@@ -30,6 +32,8 @@ def render_admin_sidebar(
     current_user: AuthenticatedUser,
 ) -> None:
     """Render admin navigation, portal switch, and logout."""
+
+    render_company_sidebar_logo(current_user)
 
     st.sidebar.markdown(
         f"<div class='hr-brand'>🤖 {assistant_name}</div>",

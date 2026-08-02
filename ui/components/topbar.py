@@ -18,6 +18,14 @@ _NOTIFICATION_CATEGORY_RULES: tuple[
 ] = (
     (
         (
+            "event_planning_reminder",
+            "event_reminder",
+        ),
+        "📅",
+        "Planning Reminder",
+    ),
+    (
+        (
             "announcement",
             "company_activity",
         ),
@@ -147,7 +155,9 @@ def _notification_list_html(items) -> str:
 _NOTIFICATION_PANEL_KEY = "_global_notification_panel_open"
 _NOTIFICATION_CONTEXT_QUERY_KEYS = (
     "announcement_id",
+    "reminder_id",
     "leave_request_id",
+    "leave_view",
     "policy_id",
     "employee_id",
 )
@@ -167,6 +177,8 @@ def _notification_destination(
     ).strip().casefold()
 
     if portal_mode == "admin":
+        if "event_reminder" in entity or "planning_reminder" in entity:
+            return "admin", "Announcements"
         if "announcement" in entity:
             return "admin", "Announcements"
         if "leave" in entity:
@@ -212,6 +224,42 @@ def _notification_destination(
     return "employee", "Dashboard"
 
 
+def _leave_notification_view(
+    item,
+    *,
+    portal_mode: str,
+) -> str:
+    """Return the exact leave workspace required by one notification."""
+
+    if portal_mode == "admin":
+        return "requests"
+
+    event_type = str(
+        item.event_type or ""
+    ).strip().casefold()
+    title = str(
+        item.title or ""
+    ).strip().casefold()
+
+    if (
+        event_type == "leave_request_submitted"
+        and "needs approval" in title
+    ):
+        return "pending"
+
+    if (
+        event_type
+        in {
+            "leave_request_approved",
+            "leave_request_rejected",
+        }
+        and "decision recorded" in title
+    ):
+        return "reviewed"
+
+    return "requests"
+
+
 def _notification_entity_query_key(item) -> str | None:
     """Map a related entity to a refresh-safe URL context key."""
 
@@ -220,6 +268,8 @@ def _notification_entity_query_key(item) -> str | None:
         or ""
     ).strip().casefold()
 
+    if "event_reminder" in entity or "planning_reminder" in entity:
+        return "reminder_id"
     if "announcement" in entity:
         return "announcement_id"
     if "leave" in entity:
@@ -275,6 +325,19 @@ def _open_notification(
         st.query_params[context_key] = str(
             item.related_entity_id
         )
+
+        entity = str(
+            item.related_entity_type or ""
+        ).strip().casefold()
+
+        if "leave" in entity:
+            st.query_params["leave_view"] = (
+                _leave_notification_view(
+                    item,
+                    portal_mode=target_portal,
+                )
+            )
+
         st.session_state[
             "notification_related_entity_type"
         ] = item.related_entity_type

@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 import json
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -46,11 +46,14 @@ from services.notification_service import NotificationService
 
 DEFAULT_LEAVE_TYPES = (
     {
+        # The three-day Emergency Leave bucket is part of the employee's
+        # combined Vacation entitlement. Regular Vacation therefore starts at
+        # 42 days, while the displayed combined entitlement is 45 days.
         "code": "VACATION",
         "name": "Vacation Leave",
-        "annual_credits": Decimal("15.00"),
+        "annual_credits": Decimal("42.00"),
         "is_paid": True,
-        "carry_over_limit": Decimal("5.00"),
+        "carry_over_limit": Decimal("0.00"),
         "requires_attachment": False,
         "minimum_notice_days": 5,
         "handover_plan_requirement": "recommended",
@@ -58,7 +61,7 @@ DEFAULT_LEAVE_TYPES = (
     {
         "code": "SICK",
         "name": "Sick Leave",
-        "annual_credits": Decimal("10.00"),
+        "annual_credits": Decimal("15.00"),
         "is_paid": True,
         "carry_over_limit": Decimal("0.00"),
         "requires_attachment": False,
@@ -87,6 +90,23 @@ DEFAULT_LEAVE_TYPES = (
     },
 )
 
+SERVICE_BONUS_AFTER_YEARS = 5
+SERVICE_BONUS_DAYS = Decimal("2.00")
+SERVICE_BONUS_CODES = {"VACATION", "SICK"}
+
+# Only exact legacy defaults are upgraded automatically. Company-specific
+# values that HR already customized remain untouched.
+LEGACY_DEFAULT_UPGRADES = {
+    "VACATION": {
+        "annual_credits": (Decimal("15.00"), Decimal("42.00")),
+        "carry_over_limit": (Decimal("5.00"), Decimal("0.00")),
+    },
+    "SICK": {
+        "annual_credits": (Decimal("10.00"), Decimal("15.00")),
+    },
+}
+
+
 
 @dataclass(frozen=True, slots=True)
 class LeaveCreditBalanceSetResult:
@@ -104,6 +124,21 @@ class LeaveSubmissionResult:
     request: LeaveRequest
     email_sent: bool
     message: str
+
+
+@dataclass(frozen=True, slots=True)
+class LeaveAllocationPlan:
+    """Paid-credit and automatic LWOP split for one leave request."""
+
+    primary_balance: LeaveBalance | None
+    primary_days: Decimal
+    fallback_balance: LeaveBalance | None
+    fallback_days: Decimal
+    lwop_days: Decimal
+
+    @property
+    def paid_days(self) -> Decimal:
+        return self.primary_days + self.fallback_days
 
 
 class LeaveService:
@@ -159,20 +194,248 @@ class LeaveService:
             return employee.user.email.strip()
         return None
 
+    @staticmethod
+    def completed_service_years(
+        hire_date: date | None,
+        as_of: date,
+    ) -> int:
+        """Return completed service years without counting partial years."""
+
+        if hire_date is None or as_of < hire_date:
+            return 0
+
+        years = as_of.year - hire_date.year
+        if (as_of.month, as_of.day) < (
+            hire_date.month,
+            hire_date.day,
+        ):
+            years -= 1
+        return max(0, years)
+
+    @staticmethod
+    def _round_to_half_day(value: Decimal) -> Decimal:
+        """Round a prorated entitlement to the nearest half day."""
+
+        return (
+            (value * Decimal("2"))
+            .quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+            / Decimal("2")
+        ).quantize(Decimal("0.00"))
+
+    def _allocation_reference_date(
+        self,
+        *,
+        year: int,
+        as_of: date | None = None,
+    ) -> date:
+        """Choose the date used for service-year entitlement computation."""
+
+        if as_of is not None:
+            return as_of
+
+        today = self._today()
+        if year < today.year:
+            return date(year, 12, 31)
+        if year > today.year:
+            return date(year, 1, 1)
+        return today
+
+    def calculate_annual_allocation(
+        self,
+        *,
+        employee: Employee,
+        leave_type: LeaveType,
+        year: int,
+        as_of: date | None = None,
+    ) -> Decimal:
+        """Compute one employee's automatic allocation for a calendar year.
+
+        Rules:
+        - The hire year is prorated by remaining calendar months, including
+          the hire month.
+        - Every later January starts a new full-year allocation.
+        - Vacation and Sick Leave gain two days after five completed years.
+        - LWOP always has zero credits.
+        """
+
+        code = (leave_type.code or "").strip().upper()
+        base = Decimal(leave_type.annual_credits or Decimal("0.00"))
+        hire_date = employee.hire_date
+        reference_date = self._allocation_reference_date(
+            year=year,
+            as_of=as_of,
+        )
+
+        if code == "LWOP" or not leave_type.is_paid:
+            return Decimal("0.00")
+
+        if hire_date is not None:
+            if year < hire_date.year:
+                return Decimal("0.00")
+            if year == hire_date.year and reference_date < hire_date:
+                return Decimal("0.00")
+
+        allocation = base
+        service_years = self.completed_service_years(
+            hire_date,
+            reference_date,
+        )
+        if (
+            code in SERVICE_BONUS_CODES
+            and service_years >= SERVICE_BONUS_AFTER_YEARS
+        ):
+            allocation += SERVICE_BONUS_DAYS
+
+        if hire_date is not None and year == hire_date.year:
+            remaining_months = 13 - hire_date.month
+            allocation = self._round_to_half_day(
+                allocation
+                * Decimal(remaining_months)
+                / Decimal("12")
+            )
+
+        return max(Decimal("0.00"), allocation)
+
+    def entitlement_summary(
+        self,
+        *,
+        employee: Employee,
+        year: int,
+        as_of: date | None = None,
+    ) -> dict[str, Decimal | int | str]:
+        """Return the standard combined leave entitlement for UI display."""
+
+        leave_types = {
+            item.code.upper(): item
+            for item in self.list_leave_types(employee.company_id)
+        }
+        reference_date = self._allocation_reference_date(
+            year=year,
+            as_of=as_of,
+        )
+
+        def allocation(code: str) -> Decimal:
+            leave_type = leave_types.get(code)
+            if leave_type is None:
+                return Decimal("0.00")
+            return self.calculate_annual_allocation(
+                employee=employee,
+                leave_type=leave_type,
+                year=year,
+                as_of=reference_date,
+            )
+
+        regular_vacation = allocation("VACATION")
+        emergency = allocation("EMERGENCY")
+        sick = allocation("SICK")
+        return {
+            "service_years": self.completed_service_years(
+                employee.hire_date,
+                reference_date,
+            ),
+            "regular_vacation": regular_vacation,
+            "emergency": emergency,
+            "vacation_total": regular_vacation + emergency,
+            "sick": sick,
+            "lwop": Decimal("0.00"),
+            "basis": (
+                "Hire-year prorated"
+                if employee.hire_date is not None
+                and year == employee.hire_date.year
+                else "Full calendar year"
+            ),
+        }
+
     def ensure_default_leave_types(self, company_id: int) -> list[LeaveType]:
-        """Create missing default types without changing existing settings."""
+        """Create defaults and safely upgrade untouched legacy allocations."""
 
         changed = False
         for spec in DEFAULT_LEAVE_TYPES:
-            existing = self.leave_type_repository.get_by_code(company_id, spec["code"])
+            existing = self.leave_type_repository.get_by_code(
+                company_id,
+                spec["code"],
+            )
             if existing is None:
-                self.session.add(LeaveType(company_id=company_id, is_active=True, **spec))
+                self.session.add(
+                    LeaveType(
+                        company_id=company_id,
+                        is_active=True,
+                        **spec,
+                    )
+                )
                 changed = True
+                continue
+
+            upgrades = LEGACY_DEFAULT_UPGRADES.get(
+                spec["code"],
+                {},
+            )
+            for field_name, (legacy_value, new_value) in upgrades.items():
+                current_value = Decimal(getattr(existing, field_name))
+                if current_value == legacy_value:
+                    setattr(existing, field_name, new_value)
+                    changed = True
+
         if changed:
             self.session.commit()
         return self.leave_type_repository.list_company(company_id)
 
-    def _ensure_balance(self, *, company_id: int, employee_id: int, leave_type: LeaveType, year: int) -> LeaveBalance:
+    def _sync_balance_allocation(
+        self,
+        *,
+        balance: LeaveBalance,
+        employee: Employee,
+        leave_type: LeaveType,
+        year: int,
+        as_of: date | None = None,
+    ) -> None:
+        """Synchronize only the automatic allocation portion of a balance."""
+
+        expected = self.calculate_annual_allocation(
+            employee=employee,
+            leave_type=leave_type,
+            year=year,
+            as_of=as_of,
+        )
+        current = Decimal(balance.allocated_days)
+        if expected == current:
+            return
+
+        difference = expected - current
+        balance.allocated_days = expected
+        self.session.add(
+            LeaveCreditTransaction(
+                company_id=balance.company_id,
+                employee_id=balance.employee_id,
+                leave_type_id=balance.leave_type_id,
+                leave_balance_id=balance.id,
+                transaction_type="automatic_allocation_update",
+                amount_days=difference,
+                note=(
+                    f"Automatic {year} entitlement recalculated from hire "
+                    f"date and completed service years; allocation is now "
+                    f"{expected} day(s)."
+                ),
+            )
+        )
+
+    def _ensure_balance(
+        self,
+        *,
+        company_id: int,
+        employee_id: int,
+        leave_type: LeaveType,
+        year: int,
+        employee: Employee | None = None,
+        as_of: date | None = None,
+    ) -> LeaveBalance:
+        employee = employee or self.employee_repository.get_with_details(
+            company_id=company_id,
+            employee_id=employee_id,
+        )
+        if employee is None:
+            raise ValueError("The employee record is unavailable.")
+
         existing = self.balance_repository.get_balance(
             company_id=company_id,
             employee_id=employee_id,
@@ -180,6 +443,16 @@ class LeaveService:
             year=year,
         )
         if existing is not None:
+            # Existing historical balances remain immutable. Current-year and
+            # explicitly dated request balances receive anniversary updates.
+            if year == self._today().year or as_of is not None:
+                self._sync_balance_allocation(
+                    balance=existing,
+                    employee=employee,
+                    leave_type=leave_type,
+                    year=year,
+                    as_of=as_of,
+                )
             return existing
 
         carry_over = Decimal("0.00")
@@ -195,12 +468,18 @@ class LeaveService:
                 Decimal(leave_type.carry_over_limit),
             )
 
+        allocation = self.calculate_annual_allocation(
+            employee=employee,
+            leave_type=leave_type,
+            year=year,
+            as_of=as_of,
+        )
         balance = LeaveBalance(
             company_id=company_id,
             employee_id=employee_id,
             leave_type_id=leave_type.id,
             year=year,
-            allocated_days=Decimal(leave_type.annual_credits),
+            allocated_days=allocation,
             carry_over_days=carry_over,
             adjustment_days=Decimal("0.00"),
             used_days=Decimal("0.00"),
@@ -215,8 +494,11 @@ class LeaveService:
                 leave_type_id=leave_type.id,
                 leave_balance_id=balance.id,
                 transaction_type="annual_allocation",
-                amount_days=Decimal(leave_type.annual_credits),
-                note=f"Annual {year} allocation",
+                amount_days=allocation,
+                note=(
+                    f"Automatic {year} allocation based on hire date and "
+                    "completed service years"
+                ),
             )
         )
         if carry_over:
@@ -233,15 +515,21 @@ class LeaveService:
             )
         return balance
 
-    def ensure_current_year_balances(self, company_id: int, year: int | None = None) -> None:
-        """Create current-year balances for all employed employees."""
+    def ensure_current_year_balances(
+        self,
+        company_id: int,
+        year: int | None = None,
+    ) -> None:
+        """Create/reset annual balances and apply due service bonuses."""
 
         selected_year = year or self._today().year
         leave_types = self.ensure_default_leave_types(company_id)
         active_types = [item for item in leave_types if item.is_active]
         employees = [
             employee
-            for employee in self.employee_repository.list_with_details(company_id)
+            for employee in self.employee_repository.list_with_details(
+                company_id
+            )
             if employee.employment_status == "employed"
         ]
         for employee in employees:
@@ -251,6 +539,7 @@ class LeaveService:
                     employee_id=employee.id,
                     leave_type=leave_type,
                     year=selected_year,
+                    employee=employee,
                 )
         self.session.commit()
 
@@ -294,23 +583,19 @@ class LeaveService:
 
         if values.apply_annual_credits_to_existing:
             year = self._today().year
-            balances = self.balance_repository.list_company_year(values.company_id, year)
+            balances = self.balance_repository.list_company_year(
+                values.company_id,
+                year,
+            )
             for balance in balances:
-                if balance.leave_type_id == leave_type.id:
-                    difference = Decimal(values.annual_credits) - Decimal(balance.allocated_days)
-                    balance.allocated_days = values.annual_credits
-                    if difference:
-                        self.session.add(
-                            LeaveCreditTransaction(
-                                company_id=values.company_id,
-                                employee_id=balance.employee_id,
-                                leave_type_id=leave_type.id,
-                                leave_balance_id=balance.id,
-                                transaction_type="allocation_update",
-                                amount_days=difference,
-                                note=f"Annual allocation changed to {values.annual_credits}",
-                            )
-                        )
+                if balance.leave_type_id != leave_type.id:
+                    continue
+                self._sync_balance_allocation(
+                    balance=balance,
+                    employee=balance.employee,
+                    leave_type=leave_type,
+                    year=year,
+                )
         self.session.commit()
         self.session.refresh(leave_type)
         return leave_type
@@ -461,6 +746,110 @@ class LeaveService:
                 recipients.add(user.id)
         return recipients
 
+    def _request_allocation_plan(
+        self,
+        *,
+        company_id: int,
+        employee: Employee,
+        leave_type: LeaveType,
+        year: int,
+        requested_days: Decimal,
+        as_of: date | None = None,
+    ) -> LeaveAllocationPlan:
+        """Split requested days into paid credits and automatic LWOP."""
+
+        requested = max(Decimal("0.00"), Decimal(requested_days))
+        code = (leave_type.code or "").strip().upper()
+
+        if code == "LWOP" or not leave_type.is_paid:
+            return LeaveAllocationPlan(
+                primary_balance=None,
+                primary_days=Decimal("0.00"),
+                fallback_balance=None,
+                fallback_days=Decimal("0.00"),
+                lwop_days=requested,
+            )
+
+        primary_balance = self._ensure_balance(
+            company_id=company_id,
+            employee_id=employee.id,
+            leave_type=leave_type,
+            year=year,
+            employee=employee,
+            as_of=as_of,
+        )
+        primary_available = max(
+            Decimal("0.00"),
+            Decimal(primary_balance.remaining_days),
+        )
+        primary_days = min(requested, primary_available)
+        remaining = requested - primary_days
+
+        fallback_balance = None
+        fallback_days = Decimal("0.00")
+
+        # Emergency Leave is the protected three-day portion of the combined
+        # Vacation entitlement. Excess emergency days therefore use regular
+        # Vacation credits before becoming LWOP.
+        if code == "EMERGENCY" and remaining > 0:
+            vacation_type = self.leave_type_repository.get_by_code(
+                company_id,
+                "VACATION",
+            )
+            if vacation_type is not None and vacation_type.is_active:
+                fallback_balance = self._ensure_balance(
+                    company_id=company_id,
+                    employee_id=employee.id,
+                    leave_type=vacation_type,
+                    year=year,
+                    employee=employee,
+                    as_of=as_of,
+                )
+                fallback_available = max(
+                    Decimal("0.00"),
+                    Decimal(fallback_balance.remaining_days),
+                )
+                fallback_days = min(remaining, fallback_available)
+                remaining -= fallback_days
+
+        return LeaveAllocationPlan(
+            primary_balance=primary_balance,
+            primary_days=primary_days,
+            fallback_balance=fallback_balance,
+            fallback_days=fallback_days,
+            lwop_days=max(Decimal("0.00"), remaining),
+        )
+
+    @staticmethod
+    def allocation_breakdown(request: LeaveRequest) -> str:
+        """Return a readable paid-credit/LWOP split for tables and email."""
+
+        def format_days(value: Decimal) -> str:
+            return f"{value:.2f}".rstrip("0").rstrip(".")
+
+        parts: list[str] = []
+        primary_days = Decimal(
+            request.primary_credit_days or Decimal("0.00")
+        )
+        fallback_days = Decimal(
+            request.fallback_credit_days or Decimal("0.00")
+        )
+        lwop_days = Decimal(request.lwop_days or Decimal("0.00"))
+
+        if primary_days > 0:
+            parts.append(
+                f"{format_days(primary_days)} {request.leave_type.name}"
+            )
+        if fallback_days > 0 and request.fallback_leave_type is not None:
+            parts.append(
+                f"{format_days(fallback_days)} "
+                f"{request.fallback_leave_type.name}"
+            )
+        if lwop_days > 0:
+            parts.append(f"{format_days(lwop_days)} LWOP")
+
+        return " + ".join(parts) or "No credit allocation"
+
     def submit_leave_request(
         self,
         values: LeaveRequestInput,
@@ -542,24 +931,17 @@ class LeaveService:
                 f"{leave_type.minimum_notice_days} days notice."
             )
 
-        balance = self._ensure_balance(
+        # Compute a preview split without reserving credits. If the selected
+        # paid bucket is insufficient, the excess is automatically classified
+        # as LWOP instead of rejecting the request.
+        allocation = self._request_allocation_plan(
             company_id=values.company_id,
-            employee_id=employee.id,
+            employee=employee,
             leave_type=leave_type,
             year=values.start_date.year,
+            requested_days=requested_days,
+            as_of=today,
         )
-
-        # Submission only validates availability. The requested days are not
-        # reserved until the assigned manager approves the request.
-        if (
-            Decimal(leave_type.annual_credits) > 0
-            and Decimal(balance.remaining_days)
-            < requested_days
-        ):
-            raise ValueError(
-                f"Insufficient {leave_type.name} credits. "
-                f"Available: {balance.remaining_days}."
-            )
 
         requirement = (
             leave_type.handover_plan_requirement
@@ -625,10 +1007,18 @@ class LeaveService:
             company_id=values.company_id,
             employee_id=employee.id,
             leave_type_id=leave_type.id,
+            fallback_leave_type=(
+                allocation.fallback_balance.leave_type
+                if allocation.fallback_balance is not None
+                else None
+            ),
             manager_employee_id=manager.id,
             start_date=values.start_date,
             end_date=values.end_date,
             requested_days=requested_days,
+            primary_credit_days=allocation.primary_days,
+            fallback_credit_days=allocation.fallback_days,
+            lwop_days=allocation.lwop_days,
             reason=values.reason,
             handover_plan=values.handover_plan,
             status="pending_manager_approval",
@@ -674,6 +1064,7 @@ class LeaveService:
                         f"{employee.full_name} submitted "
                         f"{leave_type.name} for "
                         f"{requested_days} working day(s). "
+                        f"Proposed split: {self.allocation_breakdown(request)}. "
                         "Open Leave Management to review it."
                     )
                 else:
@@ -775,7 +1166,8 @@ class LeaveService:
             request.email_error = None
             message = (
                 f"Leave request {request.public_id} was sent to "
-                f"{manager.full_name} for approval."
+                f"{manager.full_name} for approval. "
+                f"Proposed split: {self.allocation_breakdown(request)}."
             )
             email_sent = True
 
@@ -898,8 +1290,9 @@ class LeaveService:
 
         if decision_label == "Approved":
             body += (
-                "The approved days are now reserved. They will be "
-                "posted as used credits only when the leave dates occur."
+                "Paid days are now reserved and will be posted as used "
+                "when the leave dates occur. Any automatic LWOP portion "
+                "does not consume leave credits."
             )
         else:
             body += (
@@ -970,45 +1363,51 @@ class LeaveService:
             request.reservation_posted = False
             decision_label = "Rejected"
         else:
-            balance = self._ensure_balance(
+            allocation = self._request_allocation_plan(
                 company_id=request.company_id,
-                employee_id=request.employee_id,
+                employee=request.employee,
                 leave_type=request.leave_type,
                 year=request.start_date.year,
+                requested_days=Decimal(request.requested_days),
+                as_of=self._today(),
             )
 
-            if (
-                Decimal(request.leave_type.annual_credits) > 0
-                and Decimal(balance.remaining_days)
-                < Decimal(request.requested_days)
-            ):
-                raise ValueError(
-                    f"Insufficient {request.leave_type.name} credits "
-                    "at approval time."
-                )
+            request.fallback_leave_type = (
+                allocation.fallback_balance.leave_type
+                if allocation.fallback_balance is not None
+                else None
+            )
+            request.primary_credit_days = allocation.primary_days
+            request.fallback_credit_days = allocation.fallback_days
+            request.lwop_days = allocation.lwop_days
+            request.reservation_posted = allocation.paid_days > 0
 
-            if Decimal(request.leave_type.annual_credits) > 0:
-                balance.reserved_days = (
-                    Decimal(balance.reserved_days)
-                    + Decimal(request.requested_days)
-                )
-                request.reservation_posted = True
+            reservation_items = (
+                (allocation.primary_balance, allocation.primary_days),
+                (allocation.fallback_balance, allocation.fallback_days),
+            )
+            for reserved_balance, reserved_days in reservation_items:
+                if reserved_balance is None or reserved_days <= 0:
+                    continue
 
+                reserved_balance.reserved_days = (
+                    Decimal(reserved_balance.reserved_days)
+                    + reserved_days
+                )
                 self.session.add(
                     LeaveCreditTransaction(
                         company_id=request.company_id,
                         employee_id=request.employee_id,
-                        leave_type_id=request.leave_type_id,
-                        leave_balance_id=balance.id,
+                        leave_type_id=reserved_balance.leave_type_id,
+                        leave_balance_id=reserved_balance.id,
                         leave_request_id=request.id,
                         created_by_user_id=values.manager_user_id,
                         transaction_type="approval_reserved",
-                        amount_days=-Decimal(
-                            request.requested_days
-                        ),
+                        amount_days=-reserved_days,
                         note=(
-                            f"Reserved after manager approval "
-                            f"for {request.public_id}"
+                            f"Reserved after manager approval for "
+                            f"{request.public_id}; automatic split includes "
+                            f"{allocation.lwop_days} LWOP day(s)."
                         ),
                     )
                 )
@@ -1033,7 +1432,8 @@ class LeaveService:
                 message = (
                     f"{request.public_id} was "
                     f"{decision_label.lower()} by "
-                    f"{request.manager.full_name}."
+                    f"{request.manager.full_name}. "
+                    f"Final split: {self.allocation_breakdown(request)}."
                 )
             elif user_id == request.manager.user_id:
                 title = "Leave decision recorded"
@@ -1114,55 +1514,88 @@ class LeaveService:
             )
             to_post = elapsed_days - already_posted
 
-            if (
-                to_post > 0
-                and request.reservation_posted
-                and Decimal(
-                    request.leave_type.annual_credits
-                ) > 0
-            ):
-                balance = self._ensure_balance(
-                    company_id=request.company_id,
-                    employee_id=request.employee_id,
-                    leave_type=request.leave_type,
-                    year=request.start_date.year,
+            if to_post > 0:
+                primary_total = Decimal(
+                    request.primary_credit_days or Decimal("0.00")
                 )
-                balance.reserved_days = max(
-                    Decimal("0.00"),
-                    Decimal(balance.reserved_days)
-                    - to_post,
+                fallback_total = Decimal(
+                    request.fallback_credit_days or Decimal("0.00")
                 )
-                balance.used_days = (
-                    Decimal(balance.used_days)
-                    + to_post
-                )
-                request.posted_working_days = elapsed_days
 
-                self.session.add(
-                    LeaveCreditTransaction(
+                old_primary = min(already_posted, primary_total)
+                new_primary = min(elapsed_days, primary_total)
+                primary_to_post = max(
+                    Decimal("0.00"),
+                    new_primary - old_primary,
+                )
+
+                old_fallback = min(
+                    max(
+                        Decimal("0.00"),
+                        already_posted - primary_total,
+                    ),
+                    fallback_total,
+                )
+                new_fallback = min(
+                    max(
+                        Decimal("0.00"),
+                        elapsed_days - primary_total,
+                    ),
+                    fallback_total,
+                )
+                fallback_to_post = max(
+                    Decimal("0.00"),
+                    new_fallback - old_fallback,
+                )
+
+                posting_items = (
+                    (
+                        request.leave_type,
+                        primary_to_post,
+                    ),
+                    (
+                        request.fallback_leave_type,
+                        fallback_to_post,
+                    ),
+                )
+                for posting_type, posting_days in posting_items:
+                    if posting_type is None or posting_days <= 0:
+                        continue
+
+                    balance = self._ensure_balance(
                         company_id=request.company_id,
                         employee_id=request.employee_id,
-                        leave_type_id=request.leave_type_id,
-                        leave_balance_id=balance.id,
-                        leave_request_id=request.id,
-                        transaction_type="leave_days_used",
-                        amount_days=-to_post,
-                        note=(
-                            f"Posted elapsed approved leave through "
-                            f"{elapsed_end.isoformat()} for "
-                            f"{request.public_id}"
-                        ),
+                        leave_type=posting_type,
+                        year=request.start_date.year,
+                        employee=request.employee,
+                        as_of=selected_date,
                     )
-                )
-                changed += 1
+                    balance.reserved_days = max(
+                        Decimal("0.00"),
+                        Decimal(balance.reserved_days) - posting_days,
+                    )
+                    balance.used_days = (
+                        Decimal(balance.used_days) + posting_days
+                    )
+                    self.session.add(
+                        LeaveCreditTransaction(
+                            company_id=request.company_id,
+                            employee_id=request.employee_id,
+                            leave_type_id=posting_type.id,
+                            leave_balance_id=balance.id,
+                            leave_request_id=request.id,
+                            transaction_type="leave_days_used",
+                            amount_days=-posting_days,
+                            note=(
+                                f"Posted elapsed approved leave through "
+                                f"{elapsed_end.isoformat()} for "
+                                f"{request.public_id}"
+                            ),
+                        )
+                    )
 
-            elif (
-                to_post > 0
-                and Decimal(
-                    request.leave_type.annual_credits
-                ) <= 0
-            ):
-                # Unpaid/non-credit leave still advances its lifecycle.
+                # Total lifecycle progress includes automatic LWOP days even
+                # though those days do not touch a credit balance.
                 request.posted_working_days = elapsed_days
                 changed += 1
 

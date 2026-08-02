@@ -316,6 +316,11 @@ class AdminManagementService:
                         else None
                     ),
                     work_email=values.work_email,
+                    telephone_mobile_no=(
+                        values.telephone_mobile_no.strip()
+                        if values.telephone_mobile_no
+                        else None
+                    ),
                     job_title=(
                         values.job_title.strip()
                         if values.job_title
@@ -507,6 +512,11 @@ class AdminManagementService:
             else None
         )
         employee.work_email = str(values.work_email)
+        employee.telephone_mobile_no = (
+            values.telephone_mobile_no.strip()
+            if values.telephone_mobile_no
+            else None
+        )
         employee.job_title = (
             values.job_title.strip()
             if values.job_title
@@ -602,15 +612,6 @@ class AdminManagementService:
             if employee.user is not None
             else None
         )
-
-        if (
-            request.confirmation_employee_number.strip()
-            != employee_number
-        ):
-            raise ValueError(
-                "The confirmation Employee Number does not match "
-                "the selected employee."
-            )
 
         if linked_user_id == current_user_id:
             raise ValueError(

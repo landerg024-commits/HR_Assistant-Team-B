@@ -4,7 +4,9 @@ from datetime import date
 from decimal import Decimal
 
 from pydantic import ValidationError
+import json
 import streamlit as st
+import streamlit.components.v1 as components
 
 from authentication.current_user import AuthenticatedUser
 from config.settings import get_settings
@@ -96,6 +98,18 @@ def _render_balances(
             current_user.company_id,
             current_user.employee_id,
         )
+        employee = service.employee_repository.get_with_details(
+            company_id=current_user.company_id,
+            employee_id=current_user.employee_id,
+        )
+        summary = (
+            service.entitlement_summary(
+                employee=employee,
+                year=date.today().year,
+            )
+            if employee is not None
+            else None
+        )
 
     if not balances:
         st.info("No leave credits are configured.")
@@ -119,6 +133,16 @@ def _render_balances(
                     else None
                 ),
             )
+
+    if summary is not None:
+        st.info(
+            f"Completed Service: {summary['service_years']} year(s) · "
+            f"{summary['basis']}\n\n"
+            f"Annual Entitlement: Vacation {_days(summary['vacation_total'])} "
+            f"days ({_days(summary['regular_vacation'])} regular + "
+            f"{_days(summary['emergency'])} Emergency) · "
+            f"Sick Leave {_days(summary['sick'])} days · LWOP 0 credits."
+        )
 
     render_admin_table(
         [
@@ -152,6 +176,7 @@ def _render_balances(
             "180px",
             "120px",
         ),
+        max_height=360,
     )
 
     st.caption(
@@ -323,9 +348,51 @@ def _render_submit(
         start,
         end,
     )
+    primary_available = max(
+        Decimal("0.00"),
+        Decimal(selected_balance.remaining_days),
+    )
+    primary_days = min(working_days, primary_available)
+    remaining_days = max(
+        Decimal("0.00"),
+        working_days - primary_days,
+    )
+    fallback_days = Decimal("0.00")
+    if selected_type.code.upper() == "EMERGENCY" and remaining_days > 0:
+        vacation_balance = next(
+            (
+                item
+                for item in balances
+                if item.leave_type.code.upper() == "VACATION"
+            ),
+            None,
+        )
+        if vacation_balance is not None:
+            fallback_days = min(
+                remaining_days,
+                max(
+                    Decimal("0.00"),
+                    Decimal(vacation_balance.remaining_days),
+                ),
+            )
+            remaining_days -= fallback_days
+
+    split_parts = []
+    if primary_days > 0:
+        split_parts.append(
+            f"{_days(primary_days)} {selected_type.name}"
+        )
+    if fallback_days > 0:
+        split_parts.append(
+            f"{_days(fallback_days)} Vacation Leave"
+        )
+    if remaining_days > 0:
+        split_parts.append(f"{_days(remaining_days)} LWOP")
+
     st.info(
-        f"Working Days: {_days(working_days)} · "
-        "Monday to Friday only."
+        f"Working Days: {_days(working_days)} · Monday to Friday only.\n\n"
+        f"Estimated Credit / LWOP Split: "
+        f"{' + '.join(split_parts) if split_parts else 'No working days'}"
     )
 
     reason = st.text_area(
@@ -472,6 +539,7 @@ def _request_rows(requests):
                 f"{request.end_date.isoformat()}"
             ),
             "Days": _days(request.requested_days),
+            "Credit / LWOP Split": LeaveService.allocation_breakdown(request),
             "Manager": (
                 request.manager.full_name
                 if request.manager
@@ -496,6 +564,7 @@ def _request_rows(requests):
 
 def _render_requests(
     current_user: AuthenticatedUser,
+    selected_request_id: int | None = None,
 ) -> None:
     """Render the employee's complete request history."""
 
@@ -545,9 +614,28 @@ def _render_requests(
         )
         for request in requests
     }
+    option_ids = list(options)
+    selected_index = 0
+
+    if selected_request_id is not None:
+        if selected_request_id not in options:
+            st.error(
+                "The selected leave request is not available in your "
+                "request history."
+            )
+            return
+
+        selected_index = option_ids.index(selected_request_id)
+        st.session_state["employee_request_detail"] = selected_request_id
+        st.info(
+            "Opened from Notifications. The related request is selected "
+            "below inside the My Requests tab."
+        )
+
     selected_id = st.selectbox(
         "View My Request Details",
-        options=list(options),
+        options=option_ids,
+        index=selected_index,
         format_func=lambda value: options[value],
         key="employee_request_detail",
     )
@@ -583,6 +671,10 @@ def _render_requests(
         {
             "Field": "Work Handover Plan / Countermeasure",
             "Value": request.handover_plan or "Not provided",
+        },
+        {
+            "Field": "Credit / LWOP Split",
+            "Value": LeaveService.allocation_breakdown(request),
         },
         {
             "Field": "Manager Comment",
@@ -646,6 +738,7 @@ def _approval_rows(requests):
                 f"{request.end_date.isoformat()}"
             ),
             "Days": _days(request.requested_days),
+            "Credit / LWOP Split": LeaveService.allocation_breakdown(request),
             "Plan": (
                 "Provided"
                 if request.handover_plan
@@ -719,6 +812,10 @@ def _render_manager_request_detail(
             {
                 "Field": "Working Days",
                 "Value": _days(request.requested_days),
+            },
+            {
+                "Field": "Credit / LWOP Split",
+                "Value": LeaveService.allocation_breakdown(request),
             },
             {
                 "Field": "Reason",
@@ -821,6 +918,7 @@ def _render_manager_request_detail(
 
 def _render_pending_approvals(
     current_user: AuthenticatedUser,
+    selected_request_id: int | None = None,
 ) -> None:
     """Render requests waiting for this manager."""
 
@@ -852,9 +950,28 @@ def _render_pending_approvals(
         )
         for request in pending
     }
+    option_ids = list(options)
+    selected_index = 0
+
+    if selected_request_id is not None:
+        if selected_request_id not in options:
+            st.error(
+                "The selected leave request is no longer pending for "
+                "your approval."
+            )
+            return
+
+        selected_index = option_ids.index(
+            selected_request_id
+        )
+        st.info(
+            "Opened from Notifications: request awaiting your approval."
+        )
+
     selected_id = st.selectbox(
         "Select Request to Review",
-        options=list(options),
+        options=option_ids,
+        index=selected_index,
         format_func=lambda value: options[value],
         key="manager_pending_selector",
     )
@@ -865,8 +982,80 @@ def _render_pending_approvals(
     )
 
 
+def _render_reviewed_request_detail(
+    current_user: AuthenticatedUser,
+    request_id: int,
+) -> None:
+    """Show one manager-reviewed request without decision controls."""
+
+    with SessionFactory() as session:
+        request = LeaveService(
+            session
+        ).get_request(
+            current_user.company_id,
+            request_id,
+        )
+
+    if (
+        request is None
+        or request.manager_id
+        != current_user.employee_id
+    ):
+        st.error(
+            "The selected reviewed request is unavailable."
+        )
+        return
+
+    render_admin_table(
+        [
+            {
+                "Field": "Request ID",
+                "Value": request.public_id,
+            },
+            {
+                "Field": "Employee",
+                "Value": (
+                    f"{request.employee.employee_number} · "
+                    f"{request.employee.full_name}"
+                ),
+            },
+            {
+                "Field": "Leave Type",
+                "Value": request.leave_type.name,
+            },
+            {
+                "Field": "Leave Dates",
+                "Value": (
+                    f"{request.start_date.isoformat()} to "
+                    f"{request.end_date.isoformat()}"
+                ),
+            },
+            {
+                "Field": "Status",
+                "Value": _status(request.status),
+            },
+            {
+                "Field": "Reason",
+                "Value": request.reason,
+            },
+            {
+                "Field": "Manager Comment",
+                "Value": request.manager_comment or "—",
+            },
+        ],
+        key=f"manager-reviewed-detail-{request.id}",
+        min_width=900,
+        column_widths=(
+            "230px",
+            "670px",
+        ),
+        compact=True,
+    )
+
+
 def _render_reviewed_requests(
     current_user: AuthenticatedUser,
+    selected_request_id: int | None = None,
 ) -> None:
     """Render the current manager's reviewed request history."""
 
@@ -890,6 +1079,45 @@ def _render_reviewed_requests(
         min_width=1250,
     )
 
+    options = {
+        request.id: (
+            f"{request.public_id} · "
+            f"{request.employee.full_name} · "
+            f"{_status(request.status)}"
+        )
+        for request in reviewed
+    }
+    option_ids = list(options)
+    selected_index = 0
+
+    if selected_request_id is not None:
+        if selected_request_id not in options:
+            st.error(
+                "The selected leave request is not in your reviewed "
+                "request history."
+            )
+            return
+
+        selected_index = option_ids.index(
+            selected_request_id
+        )
+        st.info(
+            "Opened from Notifications: reviewed leave request."
+        )
+
+    selected_id = st.selectbox(
+        "View Reviewed Request Details",
+        options=option_ids,
+        index=selected_index,
+        format_func=lambda value: options[value],
+        key="manager_reviewed_selector",
+    )
+
+    _render_reviewed_request_detail(
+        current_user,
+        selected_id,
+    )
+
 
 def _assistant_leave_view() -> str | None:
     """Return a safe direct view requested by the HR Assistant."""
@@ -899,10 +1127,56 @@ def _assistant_leave_view() -> str | None:
     if isinstance(value, (list, tuple)):
         value = value[0] if value else None
 
-    if value in {"overview", "file", "requests"}:
+    if value in {
+        "overview",
+        "file",
+        "requests",
+        "pending",
+        "reviewed",
+    }:
         return str(value)
 
     return None
+
+
+def _notification_leave_request_id() -> int | None:
+    """Return a safe leave-request ID opened from Notifications."""
+
+    raw_value = st.query_params.get(
+        "leave_request_id"
+    )
+
+    if isinstance(raw_value, (list, tuple)):
+        raw_value = raw_value[0] if raw_value else None
+
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError):
+        return None
+
+    return value if value > 0 else None
+
+
+def _activate_employee_leave_tab(tab_label: str) -> None:
+    """Select the exact employee leave tab opened from Notifications."""
+
+    target_label_json = json.dumps(tab_label)
+    script = (
+        "<script>"
+        "const parentDocument=window.parent.document;"
+        f"const targetLabel={target_label_json};"
+        "const activateTargetTab=()=>{"
+        "const tabs=Array.from(parentDocument.querySelectorAll("
+        "'[data-testid=\"stTabs\"] button[role=\"tab\"]'));"
+        "const target=tabs.find((tab)=>tab.textContent.trim()===targetLabel);"
+        "if(target&&target.getAttribute('aria-selected')!=='true'){target.click();}"
+        "};"
+        "activateTargetTab();"
+        "window.setTimeout(activateTargetTab,80);"
+        "window.setTimeout(activateTargetTab,220);"
+        "</script>"
+    )
+    components.html(script, height=0, width=0)
 
 
 def render_employee_leave_management_page(
@@ -939,24 +1213,38 @@ def render_employee_leave_management_page(
         )
 
     direct_view = _assistant_leave_view()
+    notification_request_id = (
+        _notification_leave_request_id()
+    )
 
     if st.session_state.get("current_page") == "My Requests":
         direct_view = "requests"
 
-    if direct_view == "overview":
-        st.info("Opened from HR Assistant: Leave Credit Details")
-        _render_balances(current_user)
-        return
+    if notification_request_id is None:
+        if direct_view == "overview":
+            st.info("Opened from HR Assistant: Leave Credit Details")
+            _render_balances(current_user)
+            return
 
-    if direct_view == "file":
-        st.info("Opened from HR Assistant: File Leave Request")
-        _render_submit(current_user)
-        return
+        if direct_view == "file":
+            st.info("Opened from HR Assistant: File Leave Request")
+            _render_submit(current_user)
+            return
 
-    if direct_view == "requests":
-        st.info("Opened from HR Assistant: My Leave Requests")
-        _render_requests(current_user)
-        return
+        if direct_view == "requests":
+            st.info("Opened directly: My Leave Requests")
+            _render_requests(current_user)
+            return
+
+        if direct_view == "pending":
+            st.info("Opened directly: Pending Approval Request")
+            _render_pending_approvals(current_user)
+            return
+
+        if direct_view == "reviewed":
+            st.info("Opened directly: Reviewed Leave Request")
+            _render_reviewed_requests(current_user)
+            return
 
     labels = [
         "My Leave Overview",
@@ -981,11 +1269,42 @@ def render_employee_leave_management_page(
         _render_submit(current_user)
 
     with tabs[2]:
-        _render_requests(current_user)
+        _render_requests(
+            current_user,
+            selected_request_id=(
+                notification_request_id
+                if direct_view == "requests"
+                else None
+            ),
+        )
 
     if manager_mode:
         with tabs[3]:
-            _render_pending_approvals(current_user)
+            _render_pending_approvals(
+                current_user,
+                selected_request_id=(
+                    notification_request_id
+                    if direct_view == "pending"
+                    else None
+                ),
+            )
 
         with tabs[4]:
-            _render_reviewed_requests(current_user)
+            _render_reviewed_requests(
+                current_user,
+                selected_request_id=(
+                    notification_request_id
+                    if direct_view == "reviewed"
+                    else None
+                ),
+            )
+
+    if notification_request_id is not None:
+        target_labels = {
+            "requests": "My Requests",
+            "pending": "Pending Approvals",
+            "reviewed": "Reviewed Requests",
+        }
+        target_label = target_labels.get(direct_view)
+        if target_label is not None:
+            _activate_employee_leave_tab(target_label)
