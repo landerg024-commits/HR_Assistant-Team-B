@@ -16,6 +16,7 @@ from models.user import User
 from schemas.event_reminder_schema import (
     EventReminderInput,
     automatic_reminder_schedule,
+    parse_smart_reminder_entries,
     parse_smart_reminder_entry,
 )
 from scripts.create_initial_data import seed_initial_data
@@ -98,6 +99,52 @@ def test_smart_entry_extracts_date_title_and_notes() -> None:
     )
 
 
+def test_smart_entry_parses_multiple_reminders_from_one_box() -> None:
+    parsed = parse_smart_reminder_entries(
+        "2026/06/12 - Araw ng Kalayaan\n"
+        "Prepare the employee greeting and announcement.\n"
+        "Confirm the activity details with HR.\n\n\n"
+        "2026/02/14 - Valentine's Day\n"
+        "Prepare the employee greeting and announcement.\n"
+        "Confirm the activity details with HR.\n\n"
+        "2026/02/18 - White Day\n"
+        "Prepare the employee greeting and announcement.\n"
+        "Confirm the activity details with HR."
+    )
+
+    assert [item.event_date.isoformat() for item in parsed] == [
+        "2026-06-12",
+        "2026-02-14",
+        "2026-02-18",
+    ]
+    assert [item.title for item in parsed] == [
+        "Araw ng Kalayaan",
+        "Valentine's Day",
+        "White Day",
+    ]
+    assert parsed[0].notes == (
+        "Prepare the employee greeting and announcement.\n"
+        "Confirm the activity details with HR."
+    )
+
+
+def test_smart_batch_rejects_text_before_first_header() -> None:
+    with pytest.raises(ValueError, match="Line 1"):
+        parse_smart_reminder_entries(
+            "Preparation notes without a dated reminder header.\n"
+            "2026/02/14 - Valentine's Day"
+        )
+
+
+def test_smart_batch_identifies_invalid_later_header() -> None:
+    with pytest.raises(ValueError, match="Reminder 2"):
+        parse_smart_reminder_entries(
+            "2026/02/14 - Valentine's Day\n"
+            "Prepare the employee greeting.\n\n"
+            "2026/02/18 -"
+        )
+
+
 @pytest.mark.parametrize(
     "entry",
     (
@@ -110,6 +157,65 @@ def test_smart_entry_extracts_date_title_and_notes() -> None:
 def test_smart_entry_rejects_invalid_first_line(entry: str) -> None:
     with pytest.raises(ValueError):
         parse_smart_reminder_entry(entry)
+
+
+def test_service_creates_multiple_reminders_in_one_batch(
+    tmp_path: Path,
+) -> None:
+    factory = _factory()
+
+    with factory() as session:
+        settings = _settings(tmp_path)
+        seed = seed_initial_data(session, settings)
+        service = EventReminderService(session, settings=settings)
+        values = [
+            EventReminderInput(
+                company_id=seed["company"].id,
+                title="Araw ng Kalayaan",
+                category="Holiday / Observance",
+                notes="Prepare the employee announcement.",
+                event_start_at=datetime(
+                    2027, 6, 12, 1, 0, tzinfo=timezone.utc
+                ),
+            ),
+            EventReminderInput(
+                company_id=seed["company"].id,
+                title="Valentine's Day",
+                category="Holiday / Observance",
+                notes="Prepare the employee greeting.",
+                event_start_at=datetime(
+                    2027, 2, 14, 1, 0, tzinfo=timezone.utc
+                ),
+            ),
+            EventReminderInput(
+                company_id=seed["company"].id,
+                title="White Day",
+                category="Holiday / Observance",
+                notes="Confirm the activity details with HR.",
+                event_start_at=datetime(
+                    2027, 3, 14, 1, 0, tzinfo=timezone.utc
+                ),
+            ),
+        ]
+
+        created = service.create_many(
+            values,
+            actor_user_id=seed["admin_user"].id,
+        )
+
+        assert len(created) == 3
+        assert [item.public_id for item in created] == [
+            "REM_000001",
+            "REM_000002",
+            "REM_000003",
+        ]
+        assert [item.title for item in service.list_for_admin(
+            seed["company"].id
+        )] == [
+            "Araw ng Kalayaan",
+            "White Day",
+            "Valentine's Day",
+        ]
 
 
 def test_three_fixed_milestones_notify_active_admins_only_once_each(
@@ -339,7 +445,10 @@ def test_announcement_ui_uses_smart_entry_year_history_and_bin() -> None:
     assert '"Manage Reminders"' in page_source
     assert '"Reminder Bin (' in page_source
     assert '"Entry Box *"' in page_source
-    assert '"Save Smart Reminder"' in page_source
+    assert '"Save Smart Reminders"' in page_source
+    assert "parse_smart_reminder_entries" in page_source
+    assert ".create_many(" in page_source
+    assert "max_chars=30000" in page_source
     assert '"Reminder History Year"' in page_source
     assert '"Move Selected Reminder to Bin"' in page_source
     assert '"Permanently Delete"' in page_source

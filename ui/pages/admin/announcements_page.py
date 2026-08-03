@@ -18,6 +18,7 @@ from schemas.event_reminder_schema import (
     EVENT_REMINDER_CATEGORIES,
     EventReminderInput,
     automatic_reminder_schedule,
+    parse_smart_reminder_entries,
     parse_smart_reminder_entry,
 )
 from services.announcement_service import AnnouncementService
@@ -342,6 +343,33 @@ def _reminder_input(
         status=status,
         announcement_id=announcement_id,
     )
+
+
+def _reminder_inputs(
+    *,
+    current_user: AuthenticatedUser,
+    category: str,
+    entry_text: str,
+) -> list[EventReminderInput]:
+    """Parse and validate every reminder block before batch persistence."""
+
+    parsed_entries = parse_smart_reminder_entries(entry_text)
+    return [
+        EventReminderInput(
+            company_id=current_user.company_id,
+            title=parsed.title,
+            category=category,
+            notes=parsed.notes,
+            event_start_at=_local_datetime(
+                parsed.event_date,
+                selected_time=time(9, 0),
+            ),
+            event_end_at=None,
+            status="planned",
+            announcement_id=None,
+        )
+        for parsed in parsed_entries
+    ]
 
 
 def _read_image_map(
@@ -859,9 +887,9 @@ def _render_reminders(
 
     st.info(
         "Record future events or activities before an announcement exists. "
-        "The first Entry Box line supplies the date and title; the remaining "
-        "lines become preparation notes. Admin notifications are automatic "
-        "at 1 month, 2 weeks, and 1 week before the event."
+        "Every YYYY/MM/DD - Title line starts a separate reminder, and the "
+        "following lines become its preparation notes. Admin notifications "
+        "are automatic at 1 month, 2 weeks, and 1 week before each event."
     )
 
     reminder_tab_labels = [
@@ -894,47 +922,66 @@ def _render_reminders(
             )
             entry_text = st.text_area(
                 "Entry Box *",
-                height=220,
-                max_chars=5400,
+                height=330,
+                max_chars=30000,
                 placeholder=(
+                    "2026/06/12 - Araw ng Kalayaan\n"
+                    "Prepare the employee greeting and announcement.\n"
+                    "Confirm the activity details with HR.\n\n"
                     "2026/02/14 - Valentine's Day\n"
-                    "Prepare the announcement, employee greeting, poster, "
-                    "and activity details."
+                    "Prepare the employee greeting and announcement.\n"
+                    "Confirm the activity details with HR."
                 ),
                 help=(
-                    "First line: YYYY/MM/DD - Event or Activity Title. "
-                    "Add preparation notes on the following lines."
+                    "Each YYYY/MM/DD - Event or Activity Title line starts "
+                    "a new reminder. Add its preparation notes below it. "
+                    "The selected Category applies to every entry in the batch."
                 ),
                 key=f"create_smart_reminder_entry_{form_revision}",
             )
             st.caption(
-                "Automatic notifications: 1 month, 2 weeks, and 1 week "
-                "before the event or activity."
+                "Save one or many entries at once. Automatic notifications: "
+                "1 month, 2 weeks, and 1 week before every event or activity."
             )
             create_clicked = st.form_submit_button(
-                "Save Smart Reminder",
+                "Save Smart Reminders",
                 type="primary",
                 use_container_width=True,
             )
 
         if create_clicked:
             try:
-                values = _reminder_input(
+                values_list = _reminder_inputs(
                     current_user=current_user,
                     category=category,
                     entry_text=entry_text,
                 )
                 with SessionFactory() as session:
-                    created = EventReminderService(session).create(
-                        values,
+                    created_reminders = EventReminderService(
+                        session
+                    ).create_many(
+                        values_list,
                         actor_user_id=current_user.user_id,
                     )
+
+                if len(created_reminders) == 1:
+                    created = created_reminders[0]
+                    feedback_message = (
+                        f"{created.public_id} saved for "
+                        f"{_planning_schedule_text(created)}."
+                    )
+                else:
+                    feedback_message = (
+                        f"{len(created_reminders)} reminders saved "
+                        f"({created_reminders[0].public_id} to "
+                        f"{created_reminders[-1].public_id})."
+                    )
+
                 set_operation_feedback(
                     (
-                        f"{created.public_id} saved for "
-                        f"{_planning_schedule_text(created)}. Admin reminders "
-                        "were scheduled automatically for 1 month, 2 weeks, "
-                        "and 1 week before the event."
+                        f"{feedback_message} Admin reminders were scheduled "
+                        "automatically for 1 month, 2 weeks, and 1 week "
+                        "before each event."
                     ),
                     namespace="announcements",
                 )

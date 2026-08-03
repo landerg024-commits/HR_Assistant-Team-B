@@ -4,7 +4,13 @@ from calendar import monthrange
 from datetime import date, datetime, timedelta
 import re
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 
 EVENT_REMINDER_CATEGORIES = (
@@ -26,6 +32,9 @@ EVENT_REMINDER_STATUSES = (
 
 SMART_REMINDER_ENTRY_PATTERN = re.compile(
     r"^\s*(\d{4})[/-](\d{1,2})[/-](\d{1,2})\s*-\s*(.+?)\s*$"
+)
+SMART_REMINDER_HEADER_CANDIDATE_PATTERN = re.compile(
+    r"^\s*\d{4}[/-]\d{1,2}[/-]\d{1,2}"
 )
 
 
@@ -73,6 +82,62 @@ def parse_smart_reminder_entry(value: str) -> ParsedReminderEntry:
         title=title.strip(),
         notes=notes,
     )
+
+
+def parse_smart_reminder_entries(
+    value: str,
+) -> tuple[ParsedReminderEntry, ...]:
+    """Parse one or more reminder blocks from the shared Entry Box.
+
+    Every line matching ``YYYY/MM/DD - Title`` starts a new reminder. This
+    makes blank lines optional and still allows multi-line preparation notes.
+    The complete batch is validated before the UI writes anything.
+    """
+
+    normalized = str(value or "").replace("\r\n", "\n").replace("\r", "\n")
+    lines = normalized.split("\n")
+    blocks: list[list[str]] = []
+    current_block: list[str] | None = None
+
+    for line_number, line in enumerate(lines, start=1):
+        stripped = line.strip()
+        if SMART_REMINDER_HEADER_CANDIDATE_PATTERN.match(stripped):
+            if current_block is not None:
+                blocks.append(current_block)
+            current_block = [stripped]
+            continue
+
+        if current_block is None:
+            if stripped:
+                raise ValueError(
+                    "Line "
+                    f"{line_number} must start a reminder using: "
+                    "YYYY/MM/DD - Event Title."
+                )
+            continue
+
+        current_block.append(line)
+
+    if current_block is not None:
+        blocks.append(current_block)
+
+    if not blocks:
+        raise ValueError(
+            "Enter at least one reminder using: YYYY/MM/DD - Event Title."
+        )
+
+    parsed_entries: list[ParsedReminderEntry] = []
+    for entry_number, block in enumerate(blocks, start=1):
+        try:
+            parsed_entries.append(
+                parse_smart_reminder_entry("\n".join(block))
+            )
+        except (ValueError, ValidationError) as error:
+            raise ValueError(
+                f"Reminder {entry_number}: {error}"
+            ) from error
+
+    return tuple(parsed_entries)
 
 
 

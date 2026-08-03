@@ -102,20 +102,16 @@ class EventReminderService:
         reminder.reminder_one_week_sent_at = None
         reminder.reminder_sent_at = None
 
-    def create(
-        self,
+    @staticmethod
+    def _new_reminder(
         values: EventReminderInput,
         *,
         actor_user_id: int,
     ) -> EventReminder:
-        """Create one smart reminder with automatic fixed milestones."""
+        """Build one unsaved reminder model from validated values."""
 
-        self._validate_announcement_link(
-            company_id=values.company_id,
-            announcement_id=values.announcement_id,
-        )
         one_month_at = values.reminder_schedule[0][1]
-        reminder = EventReminder(
+        return EventReminder(
             company_id=values.company_id,
             created_by_user_id=actor_user_id,
             updated_by_user_id=actor_user_id,
@@ -135,12 +131,63 @@ class EventReminderService:
             archived_at=None,
             archived_by_user_id=None,
         )
-        self.session.add(reminder)
-        self.session.flush()
-        reminder.public_id = f"REM_{reminder.id:06d}"
-        self.session.commit()
-        self.session.refresh(reminder)
-        return reminder
+
+    def create_many(
+        self,
+        values_list: list[EventReminderInput],
+        *,
+        actor_user_id: int,
+    ) -> list[EventReminder]:
+        """Create a fully validated reminder batch in one transaction."""
+
+        if not values_list:
+            raise ValueError("Enter at least one reminder to save.")
+
+        company_ids = {values.company_id for values in values_list}
+        if len(company_ids) != 1:
+            raise ValueError("All reminders in one batch must use one company.")
+
+        try:
+            reminders: list[EventReminder] = []
+            for values in values_list:
+                self._validate_announcement_link(
+                    company_id=values.company_id,
+                    announcement_id=values.announcement_id,
+                )
+                reminder = self._new_reminder(
+                    values,
+                    actor_user_id=actor_user_id,
+                )
+                self.session.add(reminder)
+                reminders.append(reminder)
+
+            # Flush once so every reminder receives its database ID before the
+            # stable public IDs are generated. The commit happens only after
+            # the complete batch has been prepared successfully.
+            self.session.flush()
+            for reminder in reminders:
+                reminder.public_id = f"REM_{reminder.id:06d}"
+
+            self.session.commit()
+            for reminder in reminders:
+                self.session.refresh(reminder)
+            return reminders
+        except Exception:
+            self.session.rollback()
+            raise
+
+    def create(
+        self,
+        values: EventReminderInput,
+        *,
+        actor_user_id: int,
+    ) -> EventReminder:
+        """Create one reminder through the transactional batch path."""
+
+        return self.create_many(
+            [values],
+            actor_user_id=actor_user_id,
+        )[0]
 
     def update(
         self,
