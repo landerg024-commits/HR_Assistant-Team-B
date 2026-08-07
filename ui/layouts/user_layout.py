@@ -7,6 +7,9 @@ from config.settings import Settings
 from ui.components.sidebar import render_sidebar
 from ui.components.topbar import render_topbar
 from ui.pages.user.chat_page import render_chat_page
+from ui.pages.user.company_forms_documents_page import (
+    render_employee_company_forms_documents_page,
+)
 from ui.pages.user.dashboard_page import (
     render_employee_dashboard_page,
 )
@@ -43,6 +46,8 @@ def render_user_layout(
         render_employee_dashboard_page(current_user)
     elif current_page == "Chat Assistant":
         render_chat_page(current_user)
+    elif current_page == "Company Form/Documents":
+        render_employee_company_forms_documents_page(current_user)
     elif current_page == "Company Policies":
         render_employee_policies_page(current_user)
     elif current_page in {"Leave Management", "My Requests"}:

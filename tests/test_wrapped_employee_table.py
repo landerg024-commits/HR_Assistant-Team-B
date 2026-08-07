@@ -50,7 +50,7 @@ def test_table_supports_small_screens() -> None:
 
     assert "overflow-x: scroll" in source
     assert "overflow-y: scroll" in source
-    assert "min-width: 1320px" in source
+    assert "min-width: 2440px" in source
     assert "position: sticky" in source
 
 
@@ -78,4 +78,4 @@ def test_employee_table_has_compact_five_row_viewport() -> None:
     assert "max-height: 432px" in source
     assert "height: auto" in source
     assert "position: sticky" in source
-    assert "left: 120px" in source
+    assert ".employee-master-table th:nth-child(14)" in source

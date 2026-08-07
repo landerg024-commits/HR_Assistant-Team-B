@@ -1,7 +1,7 @@
 """Post elapsed approved leave days for every company.
 
 This script is safe to run repeatedly. It creates the current calendar-year
-balances, applies due service-anniversary increases, and uses each request's
+balances, applies due January tenure-based increases, and uses each request's
 posted-day counter to prevent duplicate deductions. It can be scheduled once daily through
 Windows Task Scheduler. The Streamlit app also runs the same reconciliation as
 a safety fallback whenever an authenticated user opens the application.

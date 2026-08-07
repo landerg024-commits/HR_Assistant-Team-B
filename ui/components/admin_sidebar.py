@@ -20,8 +20,8 @@ ADMIN_NAVIGATION = (
     "Policies",
     "Leave Management",
     "Announcements",
+    "Company Form/Documents",
     "Reports",
-    "Audit Logs",
     "Integrations",
 )
 
@@ -51,6 +51,15 @@ def render_admin_sidebar(
         set_navigation_state(
             portal_mode="admin",
             current_page="Employees",
+        )
+        st.rerun()
+
+    # Audit Logs was replaced by the Company Form/Documents workspace.
+    # Preserve old browser/session bookmarks by redirecting them forward.
+    if st.session_state.current_page == "Audit Logs":
+        set_navigation_state(
+            portal_mode="admin",
+            current_page="Company Form/Documents",
         )
         st.rerun()
 

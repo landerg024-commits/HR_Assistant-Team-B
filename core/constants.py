@@ -26,6 +26,7 @@ USER_NAVIGATION = (
     "Leave Management",
     "My Requests",
     "My Documents",
+    "Company Form/Documents",
     "Company Policies",
     "Benefits",
     "Onboarding",

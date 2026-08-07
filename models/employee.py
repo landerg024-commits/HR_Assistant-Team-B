@@ -60,6 +60,11 @@ class Employee(TimestampMixin, Base):
         index=True,
     )
 
+    leader_id: Mapped[int | None] = mapped_column(
+        ForeignKey("employees.id", ondelete="SET NULL"),
+        index=True,
+    )
+
     employee_number: Mapped[str] = mapped_column(
         String(80),
         nullable=False,
@@ -98,6 +103,9 @@ class Employee(TimestampMixin, Base):
     )
 
     hire_date: Mapped[date | None] = mapped_column(Date)
+    date_of_birth: Mapped[date | None] = mapped_column(Date)
+    gender: Mapped[str | None] = mapped_column(String(50))
+    civil_status: Mapped[str | None] = mapped_column(String(50))
 
     company: Mapped["Company"] = relationship(
         back_populates="employees"
@@ -110,11 +118,23 @@ class Employee(TimestampMixin, Base):
     )
 
     manager: Mapped["Employee | None"] = relationship(
+        foreign_keys=[manager_id],
         remote_side="Employee.id",
         back_populates="direct_reports",
     )
     direct_reports: Mapped[list["Employee"]] = relationship(
+        foreign_keys=[manager_id],
         back_populates="manager",
+    )
+
+    leader: Mapped["Employee | None"] = relationship(
+        foreign_keys=[leader_id],
+        remote_side="Employee.id",
+        back_populates="team_members",
+    )
+    team_members: Mapped[list["Employee"]] = relationship(
+        foreign_keys=[leader_id],
+        back_populates="leader",
     )
 
     trainings: Mapped[list["EmployeeTraining"]] = relationship(
@@ -134,8 +154,31 @@ class Employee(TimestampMixin, Base):
             self.suffix,
         ]
 
+        missing_tokens = {"n/a", "na", "none", "null", "-", "—"}
+
         return " ".join(
             part.strip()
             for part in name_parts
-            if part and part.strip()
+            if (
+                part
+                and part.strip()
+                and part.strip().casefold() not in missing_tokens
+            )
+        )
+
+    @property
+    def age(self) -> int | None:
+        """Calculate the current age from the stored date of birth."""
+
+        if self.date_of_birth is None:
+            return None
+
+        today = date.today()
+        return (
+            today.year
+            - self.date_of_birth.year
+            - (
+                (today.month, today.day)
+                < (self.date_of_birth.month, self.date_of_birth.day)
+            )
         )

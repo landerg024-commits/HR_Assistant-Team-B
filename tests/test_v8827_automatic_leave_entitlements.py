@@ -1,4 +1,4 @@
-"""Automatic January reset, tenure bonus, proration, and LWOP split tests."""
+"""January accrual, tenure bonus, proration, and LWOP split tests."""
 
 from datetime import date, timedelta
 from decimal import Decimal
@@ -146,7 +146,8 @@ def test_base_and_five_year_entitlements(tmp_path: Path) -> None:
             year=2025,
             as_of=before_five,
         )
-        assert base_vacation + base_emergency == Decimal("45.00")
+        assert base_vacation == Decimal("15.00")
+        assert base_emergency == Decimal("0.00")
         assert base_sick == Decimal("15.00")
 
         updated_vacation = service.calculate_annual_allocation(
@@ -161,8 +162,16 @@ def test_base_and_five_year_entitlements(tmp_path: Path) -> None:
             year=2025,
             as_of=after_five,
         )
-        assert updated_vacation + base_emergency == Decimal("47.00")
-        assert updated_sick == Decimal("17.00")
+        # The fifth anniversary occurs after January 1, so the +2 applies
+        # during the following January processing instead of mid-year.
+        assert updated_vacation == Decimal("15.00")
+        assert updated_sick == Decimal("15.00")
+        assert service.calculate_annual_allocation(
+            employee=employee,
+            leave_type=vacation,
+            year=2026,
+            as_of=date(2026, 1, 1),
+        ) == Decimal("17.00")
 
 
 def test_hire_year_is_prorated_by_remaining_months(tmp_path: Path) -> None:
@@ -182,9 +191,9 @@ def test_hire_year_is_prorated_by_remaining_months(tmp_path: Path) -> None:
             as_of=date(2026, 7, 15),
         )
 
-        assert summary["regular_vacation"] == Decimal("21.00")
-        assert summary["emergency"] == Decimal("1.50")
-        assert summary["vacation_total"] == Decimal("22.50")
+        assert summary["regular_vacation"] == Decimal("7.50")
+        assert summary["emergency"] == Decimal("0.00")
+        assert summary["vacation_total"] == Decimal("7.50")
         assert summary["sick"] == Decimal("7.50")
         assert summary["basis"] == "Hire-year prorated"
 
@@ -231,9 +240,10 @@ def test_new_calendar_year_has_fresh_balances(tmp_path: Path) -> None:
         )
 
         assert Decimal(next_vacation.used_days) == Decimal("0.00")
-        assert Decimal(next_vacation.allocated_days) == Decimal("44.00")
+        assert Decimal(next_vacation.allocated_days) == Decimal("17.00")
         assert Decimal(next_sick.allocated_days) == Decimal("17.00")
-        assert Decimal(next_vacation.carry_over_days) == Decimal("0.00")
+        assert Decimal(next_vacation.carry_over_days) == Decimal("7.00")
+        assert Decimal(next_vacation.available_credits) == Decimal("24.00")
 
 
 def test_insufficient_vacation_is_automatically_split_to_lwop(
@@ -314,6 +324,8 @@ def test_insufficient_vacation_is_automatically_split_to_lwop(
 
 
 def test_emergency_uses_vacation_then_lwop(tmp_path: Path) -> None:
+    """Phase 4: EL uses at most three VL-funded days, then LWOP."""
+
     factory = _factory()
     with factory() as session:
         settings = _settings(tmp_path)
@@ -339,21 +351,17 @@ def test_emergency_uses_vacation_then_lwop(tmp_path: Path) -> None:
         vacation = next(
             item for item in balances if item.leave_type.code == "VACATION"
         )
-        for balance, remaining, reason in (
-            (emergency, Decimal("1.00"), "Emergency test balance"),
-            (vacation, Decimal("2.00"), "Vacation fallback test balance"),
-        ):
-            service.set_credit_balance(
-                LeaveCreditBalanceSetInput(
-                    company_id=seed["company"].id,
-                    employee_id=employee.id,
-                    leave_type_id=balance.leave_type_id,
-                    year=date.today().year,
-                    new_remaining_days=remaining,
-                    reason=reason,
-                    created_by_user_id=seed["admin_user"].id,
-                )
+        service.set_credit_balance(
+            LeaveCreditBalanceSetInput(
+                company_id=seed["company"].id,
+                employee_id=employee.id,
+                leave_type_id=vacation.leave_type_id,
+                year=date.today().year,
+                new_remaining_days=Decimal("5.00"),
+                reason="Vacation funding for EL test",
+                created_by_user_id=seed["admin_user"].id,
             )
+        )
 
         start, end = _weekday_span(4)
         submitted = service.submit_leave_request(
@@ -368,8 +376,8 @@ def test_emergency_uses_vacation_then_lwop(tmp_path: Path) -> None:
             )
         )
 
-        assert Decimal(submitted.request.primary_credit_days) == Decimal("1.00")
-        assert Decimal(submitted.request.fallback_credit_days) == Decimal("2.00")
+        assert Decimal(submitted.request.primary_credit_days) == Decimal("0.00")
+        assert Decimal(submitted.request.fallback_credit_days) == Decimal("3.00")
         assert Decimal(submitted.request.lwop_days) == Decimal("1.00")
         assert submitted.request.fallback_leave_type.code == "VACATION"
 
@@ -395,8 +403,10 @@ def test_emergency_uses_vacation_then_lwop(tmp_path: Path) -> None:
             year=start.year,
         )
 
-        assert Decimal(emergency_after.reserved_days) == Decimal("1.00")
-        assert Decimal(vacation_after.reserved_days) == Decimal("2.00")
-        assert "1 Emergency Leave + 2 Vacation Leave + 1 LWOP" == (
-            service.allocation_breakdown(approved)
+        assert Decimal(emergency_after.reserved_days) == Decimal("0.00")
+        assert Decimal(vacation_after.reserved_days) == Decimal("3.00")
+        assert (
+            "3 Emergency Leave (deducted from Vacation Leave) + 1 LWOP"
+            == service.allocation_breakdown(approved)
         )
+

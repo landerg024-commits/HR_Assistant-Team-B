@@ -13,6 +13,7 @@ from html import escape
 import re
 from typing import Mapping, Sequence
 
+import pandas as pd
 import streamlit as st
 
 
@@ -242,3 +243,90 @@ def render_admin_table(
         html,
         unsafe_allow_html=True,
     )
+
+
+
+def render_selectable_admin_table(
+    rows: Sequence[Mapping[str, object]],
+    *,
+    key: str,
+    height: int = 320,
+) -> int | None:
+    """Render a fixed-height scrollable table and return one clicked row.
+
+    This native selectable table is used only where a row click must trigger
+    an in-app action such as a secure file-preview dialog. Other administration
+    tables continue to use ``render_admin_table`` for the custom HTML layout.
+    """
+
+    if not rows:
+        return None
+
+    frame = pd.DataFrame(list(rows))
+    scoped_key = _safe_key(key)
+
+    # Keep selectable grids visually aligned with the custom HR tables.
+    # Streamlit supports pandas Styler cell colors and font weights. The
+    # scoped CSS below matches the surrounding border, radius, and shadow
+    # without overriding the application's centralized runtime theme.
+    st.markdown(
+        f"""
+        <style>
+            div[class*="st-key-{scoped_key}"] [data-testid="stDataFrame"] {{
+                overflow: hidden !important;
+                border: 1px solid var(--hr-border) !important;
+                border-radius: 14px !important;
+                background: var(--hr-surface) !important;
+                box-shadow: var(--hr-shadow) !important;
+            }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    styled_frame = (
+        frame.style
+        .set_properties(
+            **{
+                "background-color": "#FFFFFF",
+                "color": "#5C6680",
+                "border-color": "#E3E7F0",
+            }
+        )
+        .set_table_styles(
+            [
+                {
+                    "selector": "th",
+                    "props": [
+                        ("background-color", "#F3F5FA"),
+                        ("color", "#10172A"),
+                        ("font-weight", "700"),
+                        ("border-color", "#E3E7F0"),
+                    ],
+                }
+            ]
+        )
+    )
+
+    event = st.dataframe(
+        styled_frame,
+        key=key,
+        hide_index=True,
+        use_container_width=True,
+        height=max(180, int(height)),
+        row_height=42,
+        on_select="rerun",
+        selection_mode="single-row",
+    )
+
+    selection = getattr(event, "selection", None)
+    selected_rows = getattr(selection, "rows", []) if selection else []
+
+    if not selected_rows and isinstance(event, dict):
+        selected_rows = event.get("selection", {}).get("rows", [])
+
+    if not selected_rows:
+        return None
+
+    selected_index = int(selected_rows[0])
+    return selected_index if 0 <= selected_index < len(rows) else None

@@ -1,0 +1,54 @@
+"""v8.8.67 Company Form/Documents navigation regression tests."""
+
+from pathlib import Path
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _read(relative_path: str) -> str:
+    return (PROJECT_ROOT / relative_path).read_text(encoding="utf-8")
+
+
+def test_company_forms_documents_replaces_audit_logs_in_sidebar() -> None:
+    source = _read("ui/components/admin_sidebar.py")
+    navigation = source.split("ADMIN_NAVIGATION =", 1)[1].split(
+        "def render_admin_sidebar", 1
+    )[0]
+
+    assert '"Company Form/Documents"' in navigation
+    assert '"Audit Logs"' not in navigation
+
+
+def test_company_forms_documents_is_after_announcements_before_reports() -> None:
+    source = _read("ui/components/admin_sidebar.py")
+    navigation = source.split("ADMIN_NAVIGATION =", 1)[1].split(
+        "def render_admin_sidebar", 1
+    )[0]
+
+    announcements = navigation.index('"Announcements"')
+    company_documents = navigation.index('"Company Form/Documents"')
+    reports = navigation.index('"Reports"')
+
+    assert announcements < company_documents < reports
+
+
+def test_company_forms_documents_has_dedicated_admin_route() -> None:
+    layout = _read("ui/layouts/admin_layout.py")
+    page = _read("ui/pages/admin/company_forms_documents_page.py")
+
+    assert 'page == "Company Form/Documents"' in layout
+    assert "render_company_forms_documents_page" in layout
+    assert 'st.title("Company Form/Documents")' in page
+
+
+def test_legacy_audit_logs_bookmark_redirects_to_new_workspace() -> None:
+    sidebar = _read("ui/components/admin_sidebar.py")
+
+    assert 'current_page == "Audit Logs"' in sidebar
+    assert 'current_page="Company Form/Documents"' in sidebar
+
+
+def test_release_checkpoint_v8867_is_preserved() -> None:
+    release = _read("RELEASE_v8_8_67.md")
+    assert "v8.8.67" in release

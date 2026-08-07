@@ -35,8 +35,8 @@ class LeaveRequest(TimestampMixin, Base):
         index=True,
         nullable=False,
     )
-    # Emergency leave can consume its own three-day bucket first and then
-    # fall back to the regular Vacation Leave bucket before LWOP.
+    # A request may use a secondary source. Phase 4 Emergency Leave uses
+    # Vacation Leave as that source because EL has no separate credit bucket.
     fallback_leave_type_id: Mapped[int | None] = mapped_column(
         ForeignKey("leave_types.id", ondelete="SET NULL"),
         index=True,

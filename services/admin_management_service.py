@@ -300,6 +300,7 @@ class AdminManagementService:
                         else None
                     ),
                     manager_id=values.manager_id,
+                    leader_id=values.leader_id,
                     employee_number=(
                         values.employee_number.strip()
                     ),
@@ -327,6 +328,17 @@ class AdminManagementService:
                         else None
                     ),
                     hire_date=values.hire_date,
+                    date_of_birth=values.date_of_birth,
+                    gender=(
+                        values.gender.strip()
+                        if values.gender
+                        else None
+                    ),
+                    civil_status=(
+                        values.civil_status.strip()
+                        if values.civil_status
+                        else None
+                    ),
                     employment_status=(
                         values.employment_status
                     ),
@@ -403,6 +415,14 @@ class AdminManagementService:
         ):
             raise ValueError(
                 "An employee cannot be assigned as their own manager."
+            )
+
+        if (
+            values.leader_id is not None
+            and values.leader_id == values.employee_id
+        ):
+            raise ValueError(
+                "An employee cannot be assigned as their own leader."
             )
 
         department = self._resolve_department(
@@ -523,6 +543,17 @@ class AdminManagementService:
             else None
         )
         employee.hire_date = values.hire_date
+        employee.date_of_birth = values.date_of_birth
+        employee.gender = (
+            values.gender.strip()
+            if values.gender
+            else None
+        )
+        employee.civil_status = (
+            values.civil_status.strip()
+            if values.civil_status
+            else None
+        )
         employee.employment_status = (
             values.employment_status
         )
@@ -535,6 +566,7 @@ class AdminManagementService:
         # SQLAlchemy session does not return a stale cached value.
         employee.department = department
         employee.manager_id = values.manager_id
+        employee.leader_id = values.leader_id
 
         # Synchronize in both directions:
         # Employed activates, Resigned deactivates.

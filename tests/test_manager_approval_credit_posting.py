@@ -167,7 +167,7 @@ def test_submission_emails_manager_without_reserving_credits(
         ) == Decimal("0.00")
         assert Decimal(
             refreshed.remaining_days
-        ) == Decimal("42.00")
+        ) == Decimal("15.00")
         assert sender.messages
         assert (
             sender.messages[0].to_email
@@ -316,7 +316,7 @@ def test_rejected_request_never_changes_credits(
         ) == Decimal("0.00")
         assert Decimal(
             balance.remaining_days
-        ) == Decimal("42.00")
+        ) == Decimal("15.00")
 
 
 def test_date_reconciliation_moves_reserved_to_used_once(
@@ -348,8 +348,10 @@ def test_date_reconciliation_moves_reserved_to_used_once(
             if item.leave_type.code == "VACATION"
         )
 
-        monday = date(2026, 8, 10)
-        tuesday = date(2026, 8, 11)
+        monday = date.today() + timedelta(days=10)
+        while monday.weekday() != 0:
+            monday += timedelta(days=1)
+        tuesday = monday + timedelta(days=1)
         submitted = service.submit_leave_request(
             LeaveRequestInput(
                 company_id=seed["company"].id,

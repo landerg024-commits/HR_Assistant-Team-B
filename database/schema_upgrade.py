@@ -96,6 +96,39 @@ def upgrade_existing_schema(engine: Engine) -> None:
                     )
                 )
 
+
+            if "leader_id" not in employee_columns:
+                connection.execute(
+                    text(
+                        "ALTER TABLE employees "
+                        "ADD COLUMN leader_id INTEGER"
+                    )
+                )
+
+            if "gender" not in employee_columns:
+                connection.execute(
+                    text(
+                        "ALTER TABLE employees "
+                        "ADD COLUMN gender VARCHAR(50)"
+                    )
+                )
+
+            if "civil_status" not in employee_columns:
+                connection.execute(
+                    text(
+                        "ALTER TABLE employees "
+                        "ADD COLUMN civil_status VARCHAR(50)"
+                    )
+                )
+
+            if "date_of_birth" not in employee_columns:
+                connection.execute(
+                    text(
+                        "ALTER TABLE employees "
+                        "ADD COLUMN date_of_birth DATE"
+                    )
+                )
+
             # Earlier versions stored active/inactive. Preserve the records
             # while converting them to the new user-facing terms.
             connection.execute(
@@ -330,6 +363,52 @@ def upgrade_existing_schema(engine: Engine) -> None:
                         },
                     )
 
+
+    # Phase 1 leave-credit ledger columns. Existing records are retained and
+    # mapped to the clearer Beginning Credit / Credit / Converted to Cash
+    # structure only when the new columns are first introduced.
+    inspector = inspect(engine)
+    table_names = set(inspector.get_table_names())
+
+    if "leave_balances" in table_names:
+        balance_columns = {
+            column["name"]
+            for column in inspector.get_columns("leave_balances")
+        }
+        phase_one_columns_added = False
+
+        with engine.begin() as connection:
+            for column_name in (
+                "beginning_credit_days",
+                "credit_days",
+                "converted_to_cash_days",
+            ):
+                if column_name not in balance_columns:
+                    connection.execute(
+                        text(
+                            "ALTER TABLE leave_balances "
+                            f"ADD COLUMN {column_name} "
+                            "NUMERIC(8, 2) NOT NULL DEFAULT 0.00"
+                        )
+                    )
+                    phase_one_columns_added = True
+
+            if phase_one_columns_added:
+                # Preserve the numeric meaning of every older balance:
+                # carry-over becomes Beginning Credit, automatic allocation
+                # becomes Credit, and the existing adjustment column remains
+                # the separate administrator correction bucket.
+                connection.execute(
+                    text(
+                        "UPDATE leave_balances "
+                        "SET beginning_credit_days = "
+                        "COALESCE(carry_over_days, 0), "
+                        "credit_days = "
+                        "COALESCE(allocated_days, 0), "
+                        "converted_to_cash_days = "
+                        "COALESCE(converted_to_cash_days, 0)"
+                    )
+                )
 
     # Leave approval and date-based credit posting.
     inspector = inspect(engine)

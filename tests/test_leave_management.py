@@ -100,7 +100,7 @@ def test_adjustment_updates_remaining_and_history(tmp_path: Path) -> None:
                 created_by_user_id=seed["admin_user"].id,
             )
         )
-        assert Decimal(updated.remaining_days) == Decimal("44.00")
+        assert Decimal(updated.remaining_days) == Decimal("17.00")
         history = service.list_credit_history(seed["company"].id, employee.id)
         assert any(item.transaction_type == "manual_adjustment" for item in history)
 

@@ -34,6 +34,11 @@ from ui.components.operation_feedback import (
 
 
 _LOW_CREDIT_THRESHOLD = Decimal("2.00")
+_ADMIN_LEAVE_NEXT_TABS_KEY = "_admin_leave_next_tabs"
+_LEAVE_RULE_SELECTED_ID_KEY = "leave_rule_selected_id"
+_LEAVE_RULE_PENDING_SELECTED_ID_KEY = "_leave_rule_pending_selected_id"
+_LEAVE_RULE_FORM_REVISION_PREFIX = "_leave_rule_form_revision"
+_CREDIT_FORM_REVISION_PREFIX = "_leave_credit_form_revision"
 
 
 def _days(value) -> str:
@@ -44,6 +49,37 @@ def _days(value) -> str:
         .rstrip("0")
         .rstrip(".")
     )
+
+
+def _state_revision(key: str) -> int:
+    """Return one integer widget revision stored in session state."""
+
+    return int(st.session_state.get(key, 0))
+
+
+def _bump_state_revision(key: str) -> None:
+    """Force refreshed form widgets to load committed database values."""
+
+    st.session_state[key] = _state_revision(key) + 1
+
+
+def _remember_leave_tabs(*tab_labels: str) -> None:
+    """Restore the same outer and nested Leave tabs after a rerun."""
+
+    st.session_state[_ADMIN_LEAVE_NEXT_TABS_KEY] = list(tab_labels)
+
+
+def _nonnegative_editor_value(value) -> float:
+    """Return a Streamlit-safe default for non-negative credit inputs.
+
+    Legacy or test data can contain a negative remaining balance. Streamlit
+    rejects a widget value below its ``min_value`` before the page renders,
+    so the editor starts at zero while the original balance remains visible.
+    Saving is still an explicit administrator action.
+    """
+
+    amount = Decimal(value)
+    return float(max(amount, Decimal("0.00")))
 
 
 def _format_datetime(value) -> str:
@@ -430,7 +466,10 @@ def _render_employee_account_summary(
         ("Available Credits", _days(totals["remaining"])),
         ("Used Credits", _days(totals["used"])),
         ("Reserved Credits", _days(totals["reserved"])),
-        ("Leave Types", len(balances)),
+        (
+            "Leave Types",
+            len(LeaveService.credit_table_balances(balances)),
+        ),
     ]
 
     for column, (label, value) in zip(
@@ -454,10 +493,10 @@ def _render_employee_account_summary(
     st.info(
         f"Hire Date: {hire_date} · Completed Service: "
         f"{summary['service_years']} year(s) · {summary['basis']}\n\n"
-        f"Automatic Entitlement: Vacation {_days(summary['vacation_total'])} "
-        f"days ({_days(summary['regular_vacation'])} regular + "
-        f"{_days(summary['emergency'])} Emergency) · "
-        f"Sick Leave {_days(summary['sick'])} days · LWOP 0 credits."
+        f"January Annual Accrual: Vacation "
+        f"{_days(summary['regular_vacation'])} days · "
+        f"Sick Leave {_days(summary['sick'])} days. "
+        "Unused SL/VL is shown as Beginning Credit in the next leave year. During January processing, SL retains up to 15 days and VL retains up to 45 days; any excess is moved to Converted to Cash."
     )
 
 
@@ -466,44 +505,91 @@ def _render_credit_breakdown(
     balances,
     year: int,
 ) -> None:
-    """Display employee credits without internal adjustment arithmetic."""
+    """Display employee credits and the virtual EL annual allowance."""
+
+    # The old "Current Credits" label remains retired; the visible column is
+    # "Available Credits" while EL shows allowance, not additional credits.
+    company_id = balances[0].company_id if balances else None
+    if company_id is None:
+        return
+
+    with SessionFactory() as session:
+        table_rows = LeaveService(session).credit_table_rows(
+            company_id=company_id,
+            employee_id=employee_id,
+            year=year,
+        )
 
     render_admin_table(
         [
             {
                 "Leave Type": item.leave_type.name,
-                "Annual Allocation": _days(
-                    item.allocated_days
+                "Beginning Credit": (
+                    _days(item.beginning_credit_days)
+                    if item.is_applicable
+                    else "N/A"
                 ),
-                "Carry Over": _days(
-                    item.carry_over_days
+                # Keep the table simple: Credit shows all net additions for
+                # the selected year. The backend still stores automatic grants
+                # and administrator corrections separately for auditability.
+                "Credit": (
+                    _days(
+                        Decimal(item.credit_days)
+                        + Decimal(item.adjustment_days)
+                    )
+                    if item.is_applicable
+                    else "N/A"
                 ),
-                "Used": _days(item.used_days),
-                "Reserved": _days(item.reserved_days),
-                "Current Credits": _days(
-                    item.remaining_days
+                "Used": (
+                    _days(item.used_days)
+                    if item.is_applicable
+                    else "N/A"
                 ),
-                "Last Updated": _format_datetime(
-                    item.updated_at
+                "Available Credits": (
+                    _days(item.available_credits)
+                    if item.is_applicable
+                    else "N/A"
+                ),
+                "Converted to Cash": (
+                    "N/A"
+                    if not item.is_applicable
+                    else (
+                        _days(item.converted_to_cash_days)
+                        if LeaveService.supports_cash_conversion(
+                            item.leave_type
+                        )
+                        else "—"
+                    )
+                ),
+                "Last Updated": (
+                    _format_datetime(item.updated_at)
+                    if item.is_applicable
+                    else "N/A"
                 ),
             }
-            for item in sorted(
-                balances,
-                key=lambda value: value.leave_type.name,
-            )
+            for item in table_rows
         ],
         key=f"employee-leave-account-{employee_id}-{year}",
-        min_width=1050,
+        min_width=1135,
         column_widths=(
-            "210px",
-            "145px",
+            "200px",
+            "135px",
             "110px",
-            "90px",
-            "100px",
-            "125px",
-            "190px",
+            "85px",
+            "145px",
+            "155px",
+            "185px",
         ),
-        max_height=360,
+        max_height=330,
+    )
+    st.caption(
+        "Beginning Credit is the carried balance before the current annual "
+        "accrual. Credit shows the net credits added during the selected year, "
+        "including approved annual/event grants and any administrator "
+        "correction. Available Credits is the usable balance after usage, "
+        "reservations, and cash conversion. Gender-inapplicable Maternity or "
+        "Paternity rows display N/A. Only Vacation and Sick Leave may be "
+        "converted to cash."
     )
 
 
@@ -518,6 +604,15 @@ def _render_credit_balance_editor(
     balance_by_type = {
         item.leave_type.id: item
         for item in balances
+        if (item.leave_type.code or "").strip().upper()
+        not in {
+            "EMERGENCY",
+            "HONEYMOON",
+            "MATERNITY",
+            "PATERNITY",
+            "BEREAVEMENT",
+            "LWOP",
+        }
     }
     type_options = {
         leave_type_id: (
@@ -526,6 +621,15 @@ def _render_credit_balance_editor(
         )
         for leave_type_id, item in balance_by_type.items()
     }
+
+    st.caption(
+        "Emergency Leave is not editable as a separate credit. Its maximum "
+        "three-day annual allowance is automatically deducted from Vacation "
+        "Leave when an EL request is approved. Honeymoon, Maternity, "
+        "Paternity, and Bereavement credits are also not manually editable; "
+        "their fixed credits are created only after manager approval of a "
+        "qualifying event request."
+    )
 
     selected_leave_type_id = st.selectbox(
         "Leave Type",
@@ -546,23 +650,54 @@ def _render_credit_balance_editor(
     st.info(
         f"Current {selected_balance.leave_type.name} credits: "
         f"{_days(current_remaining)} days. "
-        "Enter the exact credits that should remain after saving."
+        "Enter the exact usable balance. The system records any difference "
+        "internally so the annual and event grants remain auditable."
     )
 
-    with st.form(
+    conversion_limits = {
+        "SICK": Decimal("15.00"),
+        "VACATION": Decimal("45.00"),
+    }
+    retained_limit = conversion_limits.get(
+        (selected_balance.leave_type.code or "").strip().upper()
+    )
+    if retained_limit is not None:
+        st.caption(
+            f"Retention limit: {_days(retained_limit)} days. "
+            "Any amount above this limit is automatically moved to "
+            "Converted to Cash when saved."
+        )
+
+    if current_remaining < 0:
+        st.warning(
+            "A legacy negative leave balance was detected. "
+            "The correction field starts at 0 so this page can load safely. "
+            "Review the employee record, then save the correct balance."
+        )
+
+    revision_key = (
+        f"{_CREDIT_FORM_REVISION_PREFIX}_"
+        f"{employee_id}_{year}_{selected_leave_type_id}"
+    )
+    revision = _state_revision(revision_key)
+    form_key = (
         f"employee-leave-credit-set-"
-        f"{employee_id}-{year}-{selected_leave_type_id}"
-    ):
+        f"{employee_id}-{year}-{selected_leave_type_id}-{revision}"
+    )
+
+    with st.form(form_key):
         new_remaining_days = st.number_input(
             "New Leave Credits",
             min_value=0.0,
             max_value=365.0,
-            value=float(current_remaining),
+            value=_nonnegative_editor_value(current_remaining),
             step=0.5,
             help=(
-                "This replaces the current remaining credits. "
-                "Example: current 45, enter 10, result is 10—not 55."
+                "This sets the exact usable balance. Example: current 45, "
+                "enter 10, result is 10—not 55. Automatic annual and event "
+                "grants remain preserved in the audit history."
             ),
+            key=f"{form_key}-value",
         )
         submitted = st.form_submit_button(
             "Save Leave Credits",
@@ -592,13 +727,28 @@ def _render_credit_balance_editor(
                     session
                 ).set_credit_balance(values)
 
-        set_operation_feedback(
-            (
+        if result.converted_to_cash > Decimal("0.00"):
+            feedback_message = (
+                f"{selected_balance.leave_type.name}: "
+                f"{_days(result.requested_remaining)} days entered; "
+                f"{_days(result.new_remaining)} days retained and "
+                f"{_days(result.converted_to_cash)} days converted to cash."
+            )
+        else:
+            feedback_message = (
                 f"{selected_balance.leave_type.name} credits changed "
                 f"from {_days(result.previous_remaining)} to "
                 f"{_days(result.new_remaining)} days."
-            ),
+            )
+
+        set_operation_feedback(
+            feedback_message,
             namespace="leave",
+        )
+        _bump_state_revision(revision_key)
+        _remember_leave_tabs(
+            "Employee Leave Accounts",
+            "Set Leave Credits",
         )
         st.rerun()
 
@@ -1186,10 +1336,14 @@ def _render_type_form(
 ) -> None:
     """Create or update one leave type and its annual rules."""
 
-    form_key = (
-        f"leave-type-"
-        f"{'new' if leave_type is None else leave_type.id}"
+    leave_type_key = (
+        "new" if leave_type is None else str(leave_type.id)
     )
+    revision_key = (
+        f"{_LEAVE_RULE_FORM_REVISION_PREFIX}_{leave_type_key}"
+    )
+    revision = _state_revision(revision_key)
+    form_key = f"leave-type-{leave_type_key}-{revision}"
 
     with st.form(form_key):
         code = st.text_input(
@@ -1200,6 +1354,7 @@ def _render_type_form(
                 else ""
             ),
             max_chars=40,
+            key=f"{form_key}-code",
         )
         name = st.text_input(
             "Leave Type Name *",
@@ -1209,6 +1364,7 @@ def _render_type_form(
                 else ""
             ),
             max_chars=120,
+            key=f"{form_key}-name",
         )
         annual = st.number_input(
             "Annual Credits",
@@ -1220,6 +1376,7 @@ def _render_type_form(
                 else 0.0
             ),
             step=0.5,
+            key=f"{form_key}-annual",
         )
         carry = st.number_input(
             "Carry-over Limit",
@@ -1231,6 +1388,7 @@ def _render_type_form(
                 else 0.0
             ),
             step=0.5,
+            key=f"{form_key}-carry",
         )
         notice = st.number_input(
             "Minimum Notice Days",
@@ -1242,6 +1400,7 @@ def _render_type_form(
                 else 0
             ),
             step=1,
+            key=f"{form_key}-notice",
         )
         paid = st.checkbox(
             "Paid Leave",
@@ -1250,6 +1409,7 @@ def _render_type_form(
                 if leave_type
                 else True
             ),
+            key=f"{form_key}-paid",
         )
         requirement_options = [
             "optional",
@@ -1274,6 +1434,7 @@ def _render_type_form(
                 "Required accepts either plan text or an uploaded plan file. "
                 "Sick and emergency leave can remain Optional."
             ),
+            key=f"{form_key}-handover",
         )
         active = st.checkbox(
             "Active",
@@ -1282,10 +1443,12 @@ def _render_type_form(
                 if leave_type
                 else True
             ),
+            key=f"{form_key}-active",
         )
         apply_existing = st.checkbox(
             "Apply annual credits to existing current-year balances",
             value=False,
+            key=f"{form_key}-apply-existing",
         )
         submitted = st.form_submit_button(
             "Save Leave Rule",
@@ -1315,7 +1478,9 @@ def _render_type_form(
 
         with st.spinner("Saving leave rule…"):
             with SessionFactory() as session:
-                LeaveService(session).save_leave_type(
+                saved_leave_type = LeaveService(
+                    session
+                ).save_leave_type(
                     values,
                     leave_type.id
                     if leave_type
@@ -1323,8 +1488,20 @@ def _render_type_form(
                 )
 
         set_operation_feedback(
-            "Leave rule saved successfully.",
+            f"{saved_leave_type.name} was updated successfully.",
             namespace="leave",
+        )
+        st.session_state[
+            _LEAVE_RULE_PENDING_SELECTED_ID_KEY
+        ] = saved_leave_type.id
+        saved_revision_key = (
+            f"{_LEAVE_RULE_FORM_REVISION_PREFIX}_"
+            f"{saved_leave_type.id}"
+        )
+        _bump_state_revision(saved_revision_key)
+        _remember_leave_tabs(
+            "Leave Rules",
+            "Edit Leave Rule",
         )
         st.rerun()
 
@@ -1341,11 +1518,11 @@ def _render_rules(
     """Render leave types, allocations, and request requirements."""
 
     st.info(
-        "Automatic standard entitlement: Vacation Leave is 42 regular days "
-        "+ 3 Emergency Leave days (45 total), Sick Leave is 15 days, and "
-        "LWOP has zero credits. After five completed service years, Vacation "
-        "and Sick Leave each gain two days. Hire-year allocations are prorated "
-        "and balances reset every January."
+        "January annual accrual: Vacation Leave and Sick Leave each receive "
+        "15 days. Employees with at least five completed service years on "
+        "January 1 receive 17 days for each. A mid-year fifth anniversary "
+        "applies on the next January processing. Unused SL/VL becomes the next "
+        "year's Beginning Credit; cash-conversion limits are added in Phase 3."
     )
 
     with SessionFactory() as session:
@@ -1422,10 +1599,28 @@ def _render_rules(
             item.id: f"{item.code} · {item.name}"
             for item in leave_types
         }
+        pending_selected_id = st.session_state.pop(
+            _LEAVE_RULE_PENDING_SELECTED_ID_KEY,
+            None,
+        )
+        if pending_selected_id in options:
+            st.session_state[
+                _LEAVE_RULE_SELECTED_ID_KEY
+            ] = pending_selected_id
+        elif (
+            st.session_state.get(
+                _LEAVE_RULE_SELECTED_ID_KEY
+            ) not in options
+        ):
+            st.session_state[
+                _LEAVE_RULE_SELECTED_ID_KEY
+            ] = next(iter(options))
+
         selected_id = st.selectbox(
             "Select Leave Rule",
             options=list(options),
             format_func=lambda value: options[value],
+            key=_LEAVE_RULE_SELECTED_ID_KEY,
         )
         selected = next(
             item
@@ -1453,26 +1648,35 @@ def _notification_leave_request_id() -> int | None:
     return value if value > 0 else None
 
 
-def _activate_leave_tab(tab_label: str) -> None:
-    """Select one visible Streamlit tab after notification navigation."""
+def _activate_leave_tabs(tab_labels: list[str]) -> None:
+    """Restore outer and nested Streamlit tabs after a successful update."""
 
-    target_label_json = json.dumps(tab_label)
+    labels_json = json.dumps(tab_labels)
     script = (
         "<script>"
         "const parentDocument=window.parent.document;"
-        f"const targetLabel={target_label_json};"
-        "const activateTargetTab=()=>{"
+        f"const targetLabels={labels_json};"
+        "const activateTargetTabs=()=>{"
         "const tabs=Array.from(parentDocument.querySelectorAll("
         "'[data-testid=\"stTabs\"] button[role=\"tab\"]'));"
+        "targetLabels.forEach((targetLabel)=>{"
         "const target=tabs.find((tab)=>tab.textContent.trim()===targetLabel);"
         "if(target&&target.getAttribute('aria-selected')!=='true'){target.click();}"
+        "});"
         "};"
-        "activateTargetTab();"
-        "window.setTimeout(activateTargetTab,80);"
-        "window.setTimeout(activateTargetTab,220);"
+        "activateTargetTabs();"
+        "window.setTimeout(activateTargetTabs,80);"
+        "window.setTimeout(activateTargetTabs,220);"
+        "window.setTimeout(activateTargetTabs,450);"
         "</script>"
     )
     components.html(script, height=0, width=0)
+
+
+def _activate_leave_tab(tab_label: str) -> None:
+    """Select one visible Streamlit tab after notification navigation."""
+
+    _activate_leave_tabs([tab_label])
 
 
 def _notification_request_year(
@@ -1591,5 +1795,14 @@ def render_admin_leave_management_page(
     with rules_tab:
         _render_rules(current_user)
 
-    if notification_request_id is not None:
+    restored_tabs = st.session_state.pop(
+        _ADMIN_LEAVE_NEXT_TABS_KEY,
+        None,
+    )
+
+    if restored_tabs:
+        _activate_leave_tabs(
+            [str(label) for label in restored_tabs]
+        )
+    elif notification_request_id is not None:
         _activate_leave_tab("Leave Requests")

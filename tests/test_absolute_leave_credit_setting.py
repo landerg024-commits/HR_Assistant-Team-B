@@ -93,7 +93,7 @@ def test_setting_10_changes_15_to_exactly_10(
         )
 
         assert Decimal(vacation.remaining_days) == Decimal(
-            "42.00"
+            "15.00"
         )
 
         result = service.set_credit_balance(
@@ -108,7 +108,7 @@ def test_setting_10_changes_15_to_exactly_10(
             )
         )
 
-        assert result.previous_remaining == Decimal("42.00")
+        assert result.previous_remaining == Decimal("15.00")
         assert result.new_remaining == Decimal("10.00")
         assert Decimal(
             result.balance.remaining_days
@@ -126,7 +126,7 @@ def test_setting_10_changes_15_to_exactly_10(
         )
 
         assert Decimal(entry.amount_days) == Decimal("10.00")
-        assert "Previous balance: 42.00 days" in entry.note
+        assert "Previous balance: 15.00 days" in entry.note
         assert "New balance: 10.00 days" in entry.note
         assert "Correct employee balance" not in entry.note
 
@@ -218,7 +218,7 @@ def test_same_balance_does_not_create_history(
                     employee_id=employee.id,
                     leave_type_id=vacation.leave_type_id,
                     year=date.today().year,
-                    new_remaining_days=Decimal("42.00"),
+                    new_remaining_days=Decimal("15.00"),
                     reason="No actual change",
                     created_by_user_id=seed["admin_user"].id,
                 )
@@ -247,7 +247,7 @@ def test_admin_ui_uses_absolute_non_negative_input() -> None:
 
     assert '"New Leave Credits"' in editor
     assert "min_value=0.0" in editor
-    assert "value=float(current_remaining)" in editor
+    assert "value=_nonnegative_editor_value(current_remaining)" in editor
     assert '"Save Leave Credits"' in editor
     assert "set_credit_balance(values)" in editor
     assert "Adjustment Days" not in editor
@@ -255,7 +255,7 @@ def test_admin_ui_uses_absolute_non_negative_input() -> None:
     assert "negative values" not in editor.lower()
 
 
-def test_visible_breakdown_hides_internal_adjustment_math() -> None:
+def test_visible_breakdown_hides_adjustment_column_but_keeps_internal_total() -> None:
     source = (
         PROJECT_ROOT
         / "ui/pages/admin/leave_management_page.py"
@@ -270,8 +270,9 @@ def test_visible_breakdown_hides_internal_adjustment_math() -> None:
     )[0]
 
     assert '"Current Credits"' in breakdown
-    assert '"Adjustments"' not in breakdown
-    assert "adjustment_days" not in breakdown
+    assert '"Adjustment":' not in breakdown
+    assert "credit_days" in breakdown
+    assert "adjustment_days" in breakdown
 
 
 def test_employee_tab_is_named_set_leave_credits() -> None:

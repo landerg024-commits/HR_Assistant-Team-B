@@ -113,7 +113,7 @@ def test_live_leave_balance_returns_specific_vl_breakdown() -> None:
 
         assert response.intent == "leave_balance"
         assert "VL — Vacation Leave" in response.answer
-        assert "45 available" in response.answer
+        assert "15 available" in response.answer
         assert "SL — Sick Leave" not in response.answer
         assert response.actions[0].query_params["leave_view"] == "overview"
 

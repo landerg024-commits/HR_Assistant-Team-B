@@ -47,9 +47,13 @@ class EmployeeCreate(BaseModel):
     )
     job_title: str | None = Field(default=None, max_length=150)
     hire_date: date | None = None
+    date_of_birth: date | None = None
+    gender: str | None = Field(default=None, max_length=50)
+    civil_status: str | None = Field(default=None, max_length=50)
     employment_status: str = "employed"
     department_id: int | None = None
     manager_id: int | None = None
+    leader_id: int | None = None
     user_id: int | None = None
 
 

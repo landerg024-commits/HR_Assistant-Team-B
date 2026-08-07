@@ -98,6 +98,12 @@ def _render_balances(
             current_user.company_id,
             current_user.employee_id,
         )
+        table_rows = service.credit_table_rows(
+            company_id=current_user.company_id,
+            employee_id=current_user.employee_id,
+            year=date.today().year,
+            balances=balances,
+        )
         employee = service.employee_repository.get_with_details(
             company_id=current_user.company_id,
             employee_id=current_user.employee_id,
@@ -116,20 +122,20 @@ def _render_balances(
         return
 
     columns = st.columns(
-        min(4, len(balances))
+        min(4, len(table_rows))
     )
 
-    for column, balance in zip(
+    for column, row in zip(
         columns,
-        balances[:4],
+        table_rows[:4],
     ):
         with column:
             st.metric(
-                balance.leave_type.name,
-                _days(balance.remaining_days),
+                row.leave_type.name,
+                _days(row.available_credits),
                 delta=(
-                    f"{_days(balance.reserved_days)} reserved"
-                    if Decimal(balance.reserved_days) > 0
+                    f"{_days(row.reserved_days)} reserved"
+                    if Decimal(row.reserved_days) > 0
                     else None
                 ),
             )
@@ -138,51 +144,94 @@ def _render_balances(
         st.info(
             f"Completed Service: {summary['service_years']} year(s) · "
             f"{summary['basis']}\n\n"
-            f"Annual Entitlement: Vacation {_days(summary['vacation_total'])} "
-            f"days ({_days(summary['regular_vacation'])} regular + "
-            f"{_days(summary['emergency'])} Emergency) · "
-            f"Sick Leave {_days(summary['sick'])} days · LWOP 0 credits."
+            f"January Annual Accrual: Vacation "
+            f"{_days(summary['regular_vacation'])} days · "
+            f"Sick Leave {_days(summary['sick'])} days. "
+            "Unused SL/VL becomes Beginning Credit in the next leave year. "
+            "SL retains up to 15 days and VL retains up to 45 days after "
+            "January cash conversion. Emergency Leave is limited to 3 days "
+            "per year and is deducted from Vacation Leave. Event-based "
+            "credits are granted only after manager approval: Honeymoon 5 "
+            "days once, Maternity 105, Paternity 7, and Bereavement 7 days "
+            "per qualifying event."
         )
 
     render_admin_table(
         [
             {
                 "Leave Type": balance.leave_type.name,
-                "Annual Allocation": _days(
-                    balance.allocated_days
+                "Beginning Credit": (
+                    _days(balance.beginning_credit_days)
+                    if balance.is_applicable
+                    else "N/A"
                 ),
-                "Carry Over": _days(
-                    balance.carry_over_days
+                # Present one simple Credit total while the backend keeps
+                # automatic grants and administrator corrections auditable.
+                "Credit": (
+                    _days(
+                        Decimal(balance.credit_days)
+                        + Decimal(balance.adjustment_days)
+                    )
+                    if balance.is_applicable
+                    else "N/A"
                 ),
-                "Available Credits": _days(
-                    balance.remaining_days
+                "Used": (
+                    _days(balance.used_days)
+                    if balance.is_applicable
+                    else "N/A"
                 ),
-                "Reserved Approved Leave": _days(
-                    balance.reserved_days
+                "Available Credits": (
+                    _days(balance.available_credits)
+                    if balance.is_applicable
+                    else "N/A"
                 ),
-                "Used Credits": _days(
-                    balance.used_days
+                "Converted to Cash": (
+                    "N/A"
+                    if not balance.is_applicable
+                    else (
+                        _days(balance.converted_to_cash_days)
+                        if LeaveService.supports_cash_conversion(
+                            balance.leave_type
+                        )
+                        else "—"
+                    )
+                ),
+                "Last Updated": (
+                    (
+                        balance.updated_at.strftime(
+                            "%Y-%m-%d %I:%M %p"
+                        )
+                        if balance.updated_at is not None
+                        else "—"
+                    )
+                    if balance.is_applicable
+                    else "N/A"
                 ),
             }
-            for balance in balances
+            for balance in table_rows
         ],
         key="employee-leave-balances",
-        min_width=1050,
+        min_width=1135,
         column_widths=(
-            "210px",
-            "150px",
+            "200px",
+            "135px",
             "110px",
+            "85px",
             "145px",
-            "180px",
-            "120px",
+            "155px",
+            "185px",
         ),
-        max_height=360,
+        max_height=330,
     )
 
     st.caption(
-        "Pending requests do not affect credits. Approved requests reduce "
-        "available credits through reservation. Reserved days become used "
-        "only when their approved leave dates occur."
+        "Beginning Credit is the carried balance before the current annual "
+        "accrual. Credit shows the net credits added during the selected year, "
+        "including approved annual/event grants and any administrator "
+        "correction. Available Credits is the usable balance after usage, "
+        "reservations, and cash conversion. Gender-inapplicable Maternity or "
+        "Paternity rows display N/A. Only Vacation and Sick Leave may be "
+        "converted to cash."
     )
 
 
@@ -201,12 +250,32 @@ def _load_request_context(
             company_id=current_user.company_id,
             employee_id=current_user.employee_id,
         )
+        table_rows = service.credit_table_rows(
+            company_id=current_user.company_id,
+            employee_id=current_user.employee_id,
+            year=date.today().year,
+            balances=balances,
+        )
         admin_emails = service._admin_cc_emails(
             current_user.company_id,
             exclude=set(),
         )
+        event_preview_credits = {
+            row.leave_type.id: service.event_leave_preview_entitlement(
+                company_id=current_user.company_id,
+                employee_id=current_user.employee_id,
+                leave_type=row.leave_type,
+            )
+            for row in table_rows
+        }
 
-    return balances, employee, admin_emails
+    return (
+        balances,
+        employee,
+        admin_emails,
+        table_rows,
+        event_preview_credits,
+    )
 
 
 def _render_submit(
@@ -222,9 +291,13 @@ def _render_submit(
 
     settings = get_settings()
     nonce = _nonce()
-    balances, employee, admin_emails = _load_request_context(
-        current_user
-    )
+    (
+        balances,
+        employee,
+        admin_emails,
+        table_rows,
+        event_preview_credits,
+    ) = _load_request_context(current_user)
 
     if employee is None:
         st.error("Your employee record is unavailable.")
@@ -260,7 +333,9 @@ def _render_submit(
     st.markdown("### File Leave Request")
     st.caption(
         "Complete the structured request below. To and CC recipients "
-        "come from connected employee and administrator records."
+        "come from connected employee and administrator records. Maternity "
+        "is available only to Female employees; Paternity is available only "
+        "to Male employees based on the employee master record."
     )
 
     recipient_left, recipient_right = st.columns(2)
@@ -292,31 +367,69 @@ def _render_submit(
         balance.leave_type_id: balance
         for balance in balances
         if balance.leave_type.is_active
+        and LeaveService.is_event_leave_gender_eligible(
+            employee=employee,
+            leave_type_or_code=balance.leave_type,
+        )
+    }
+    display_row_by_type = {
+        row.leave_type.id: row
+        for row in table_rows
     }
 
     if not type_options:
         st.info("No active leave type is available.")
         return
 
+    def _format_leave_type_option(value: int) -> str:
+        """Build a Python 3.11-safe label for the leave-type selector."""
+
+        displayed_available = (
+            display_row_by_type[value].available_credits
+            if value in display_row_by_type
+            else type_options[value].remaining_days
+        )
+        selected_leave_type = type_options[value].leave_type
+        leave_name = selected_leave_type.name
+        event_credit = Decimal(
+            event_preview_credits.get(value, Decimal("0.00"))
+        )
+        selected_code = (selected_leave_type.code or "").strip().upper()
+        if event_credit > Decimal("0.00"):
+            suffix = (
+                "one-time grant after approval"
+                if selected_code == "HONEYMOON"
+                else "per approved event"
+            )
+            return f"{leave_name} · {_days(event_credit)} {suffix}"
+        if selected_code == "HONEYMOON":
+            return f"{leave_name} · one-time benefit already requested/used"
+        return f"{leave_name} · {_days(displayed_available)} available"
+
     leave_type_id = st.selectbox(
         "Leave Type *",
         options=list(type_options),
-        format_func=lambda value: (
-            f"{type_options[value].leave_type.name} · "
-            f"{_days(type_options[value].remaining_days)} "
-            "available"
-        ),
+        format_func=_format_leave_type_option,
         key=_key(nonce, "type"),
     )
     selected_balance = type_options[leave_type_id]
     selected_type = selected_balance.leave_type
+    selected_display_row = display_row_by_type.get(leave_type_id)
+    selected_available = Decimal(
+        selected_display_row.available_credits
+        if selected_display_row is not None
+        else selected_balance.remaining_days
+    )
+    selected_event_credit = Decimal(
+        event_preview_credits.get(leave_type_id, Decimal("0.00"))
+    )
 
     available_column, rule_column = st.columns(2)
 
     with available_column:
         st.metric(
             "Available Credits",
-            _days(selected_balance.remaining_days),
+            _days(selected_available),
         )
 
     with rule_column:
@@ -348,17 +461,11 @@ def _render_submit(
         start,
         end,
     )
-    primary_available = max(
-        Decimal("0.00"),
-        Decimal(selected_balance.remaining_days),
-    )
-    primary_days = min(working_days, primary_available)
-    remaining_days = max(
-        Decimal("0.00"),
-        working_days - primary_days,
-    )
+    selected_code = (selected_type.code or "").strip().upper()
+    primary_days = Decimal("0.00")
     fallback_days = Decimal("0.00")
-    if selected_type.code.upper() == "EMERGENCY" and remaining_days > 0:
+
+    if selected_code == "EMERGENCY":
         vacation_balance = next(
             (
                 item
@@ -367,27 +474,83 @@ def _render_submit(
             ),
             None,
         )
-        if vacation_balance is not None:
-            fallback_days = min(
-                remaining_days,
-                max(
-                    Decimal("0.00"),
-                    Decimal(vacation_balance.remaining_days),
-                ),
+        vacation_available = (
+            max(
+                Decimal("0.00"),
+                Decimal(vacation_balance.remaining_days),
             )
-            remaining_days -= fallback_days
+            if vacation_balance is not None
+            else Decimal("0.00")
+        )
+        fallback_days = min(
+            working_days,
+            max(Decimal("0.00"), selected_available),
+            vacation_available,
+        )
+        remaining_days = max(
+            Decimal("0.00"),
+            working_days - fallback_days,
+        )
+    else:
+        primary_available = max(
+            Decimal("0.00"),
+            selected_available + selected_event_credit,
+        )
+        event_limit = selected_event_credit
+        primary_days = min(
+            working_days,
+            primary_available,
+            event_limit,
+        ) if event_limit > Decimal("0.00") else min(
+            working_days,
+            primary_available,
+        )
+        remaining_days = max(
+            Decimal("0.00"),
+            working_days - primary_days,
+        )
 
     split_parts = []
-    if primary_days > 0:
+    if selected_code == "EMERGENCY" and fallback_days > 0:
+        split_parts.append(
+            f"{_days(fallback_days)} Emergency Leave "
+            "(deducted from Vacation Leave)"
+        )
+    elif primary_days > 0:
         split_parts.append(
             f"{_days(primary_days)} {selected_type.name}"
         )
-    if fallback_days > 0:
-        split_parts.append(
-            f"{_days(fallback_days)} Vacation Leave"
-        )
     if remaining_days > 0:
         split_parts.append(f"{_days(remaining_days)} LWOP")
+
+    if selected_code == "EMERGENCY":
+        st.caption(
+            "Emergency Leave has a maximum three-day annual allowance. "
+            "It does not add credits; approved EL days deduct from your "
+            "Vacation Leave balance."
+        )
+    elif selected_code in {
+        "HONEYMOON",
+        "MATERNITY",
+        "PATERNITY",
+        "BEREAVEMENT",
+    }:
+        if selected_event_credit > Decimal("0.00"):
+            event_rule = (
+                "one-time qualifying event"
+                if selected_code == "HONEYMOON"
+                else "each manager-approved qualifying event"
+            )
+            st.caption(
+                f"Manager approval grants {_days(selected_event_credit)} "
+                f"days for {event_rule}. Days beyond the fixed event limit "
+                "are automatically classified as LWOP."
+            )
+        else:
+            st.warning(
+                "The one-time Honeymoon Leave benefit has already been "
+                "requested or used."
+            )
 
     st.info(
         f"Working Days: {_days(working_days)} · Monday to Friday only.\n\n"

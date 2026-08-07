@@ -46,12 +46,11 @@ from services.notification_service import NotificationService
 
 DEFAULT_LEAVE_TYPES = (
     {
-        # The three-day Emergency Leave bucket is part of the employee's
-        # combined Vacation entitlement. Regular Vacation therefore starts at
-        # 42 days, while the displayed combined entitlement is 45 days.
+        # Vacation Leave receives a 15-day January accrual. Employees who
+        # have completed five service years by January 1 receive 17 days.
         "code": "VACATION",
         "name": "Vacation Leave",
-        "annual_credits": Decimal("42.00"),
+        "annual_credits": Decimal("15.00"),
         "is_paid": True,
         "carry_over_limit": Decimal("0.00"),
         "requires_attachment": False,
@@ -69,9 +68,12 @@ DEFAULT_LEAVE_TYPES = (
         "handover_plan_requirement": "optional",
     },
     {
+        # Emergency Leave is included in the Vacation Leave entitlement.
+        # Phase 2 therefore gives it no separate annual credit. Its protected
+        # three-day usage allowance is enforced in the later EL phase.
         "code": "EMERGENCY",
         "name": "Emergency Leave",
-        "annual_credits": Decimal("3.00"),
+        "annual_credits": Decimal("0.00"),
         "is_paid": True,
         "carry_over_limit": Decimal("0.00"),
         "requires_attachment": False,
@@ -79,6 +81,53 @@ DEFAULT_LEAVE_TYPES = (
         "handover_plan_requirement": "optional",
     },
     {
+        # Phase 5 grants five days once, after manager approval of the
+        # employee's single qualifying Honeymoon Leave request.
+        "code": "HONEYMOON",
+        "name": "Honeymoon Leave",
+        "annual_credits": Decimal("0.00"),
+        "is_paid": True,
+        "carry_over_limit": Decimal("0.00"),
+        "requires_attachment": False,
+        "minimum_notice_days": 0,
+        "handover_plan_requirement": "recommended",
+    },
+    {
+        # Phase 5 grants 105 days for each manager-approved qualifying event.
+        "code": "MATERNITY",
+        "name": "Maternity Leave",
+        "annual_credits": Decimal("0.00"),
+        "is_paid": True,
+        "carry_over_limit": Decimal("0.00"),
+        "requires_attachment": False,
+        "minimum_notice_days": 0,
+        "handover_plan_requirement": "recommended",
+    },
+    {
+        # Phase 5 grants seven days for each manager-approved qualifying event.
+        "code": "PATERNITY",
+        "name": "Paternity Leave",
+        "annual_credits": Decimal("0.00"),
+        "is_paid": True,
+        "carry_over_limit": Decimal("0.00"),
+        "requires_attachment": False,
+        "minimum_notice_days": 0,
+        "handover_plan_requirement": "recommended",
+    },
+    {
+        # Phase 5 grants seven days for each manager-approved qualifying event.
+        "code": "BEREAVEMENT",
+        "name": "Bereavement Leave",
+        "annual_credits": Decimal("0.00"),
+        "is_paid": True,
+        "carry_over_limit": Decimal("0.00"),
+        "requires_attachment": False,
+        "minimum_notice_days": 0,
+        "handover_plan_requirement": "recommended",
+    },
+    {
+        # LWOP remains an internal fallback and is intentionally excluded
+        # from the seven-row employee leave-credit table.
         "code": "LWOP",
         "name": "Leave Without Pay",
         "annual_credits": Decimal("0.00"),
@@ -90,19 +139,89 @@ DEFAULT_LEAVE_TYPES = (
     },
 )
 
+LEAVE_CREDIT_TABLE_CODES = (
+    "VACATION",
+    "EMERGENCY",
+    "SICK",
+    "HONEYMOON",
+    "MATERNITY",
+    "PATERNITY",
+    "BEREAVEMENT",
+)
+LEAVE_CREDIT_TABLE_ORDER = {
+    code: index
+    for index, code in enumerate(LEAVE_CREDIT_TABLE_CODES)
+}
+
 SERVICE_BONUS_AFTER_YEARS = 5
 SERVICE_BONUS_DAYS = Decimal("2.00")
 SERVICE_BONUS_CODES = {"VACATION", "SICK"}
+ANNUAL_ACCRUAL_CODES = {"VACATION", "SICK"}
+ANNUAL_BASE_CREDIT = Decimal("15.00")
+
+# Emergency Leave is a protected annual usage allowance inside Vacation
+# Leave. It never creates additional credits; approved EL days consume VL.
+EMERGENCY_USAGE_LIMIT = Decimal("3.00")
+EMERGENCY_ACTIVE_STATUSES = {
+    "scheduled",
+    "approved",
+    "in_progress",
+    "completed",
+}
+
+# Event-based leave is granted only when a manager approves the related
+# request. Each approved request represents one qualifying event. Honeymoon
+# Leave is the only lifetime one-time benefit; the other event leave types may
+# receive another fixed grant for a later approved qualifying event.
+EVENT_LEAVE_ENTITLEMENTS = {
+    "HONEYMOON": Decimal("5.00"),
+    "MATERNITY": Decimal("105.00"),
+    "PATERNITY": Decimal("7.00"),
+    "BEREAVEMENT": Decimal("7.00"),
+}
+EVENT_LEAVE_CODES = set(EVENT_LEAVE_ENTITLEMENTS)
+EVENT_LEAVE_GRANT_TRANSACTION = "event_leave_entitlement_grant"
+
+# Maternity and Paternity eligibility follows the employee gender recorded
+# in the employee master file. The service layer remains the source of truth
+# so direct calls and old pending requests cannot bypass the UI filter.
+EVENT_LEAVE_GENDER_REQUIREMENTS = {
+    "MATERNITY": "FEMALE",
+    "PATERNITY": "MALE",
+}
+
+EVENT_LEAVE_NON_REJECTED_STATUSES = {
+    "pending_manager_approval",
+    "scheduled",
+    "approved",
+    "in_progress",
+    "completed",
+}
+
+# Fixed balances that may remain usable after the January annual credit.
+# Any opening ledger amount above these limits is transferred to the
+# Converted to Cash column and is no longer part of available credits.
+CASH_CONVERSION_LIMITS = {
+    "SICK": Decimal("15.00"),
+    "VACATION": Decimal("45.00"),
+}
+CASH_CONVERSION_TRANSACTION = "january_cash_conversion"
+CASH_CONVERSION_LIMIT_ENFORCEMENT_TRANSACTION = (
+    "cash_conversion_limit_enforcement"
+)
 
 # Only exact legacy defaults are upgraded automatically. Company-specific
 # values that HR already customized remain untouched.
 LEGACY_DEFAULT_UPGRADES = {
     "VACATION": {
-        "annual_credits": (Decimal("15.00"), Decimal("42.00")),
-        "carry_over_limit": (Decimal("5.00"), Decimal("0.00")),
+        "annual_credits": ({Decimal("42.00")}, Decimal("15.00")),
+        "carry_over_limit": ({Decimal("5.00")}, Decimal("0.00")),
     },
     "SICK": {
-        "annual_credits": (Decimal("10.00"), Decimal("15.00")),
+        "annual_credits": ({Decimal("10.00")}, Decimal("15.00")),
+    },
+    "EMERGENCY": {
+        "annual_credits": ({Decimal("3.00")}, Decimal("0.00")),
     },
 }
 
@@ -110,11 +229,13 @@ LEGACY_DEFAULT_UPGRADES = {
 
 @dataclass(frozen=True, slots=True)
 class LeaveCreditBalanceSetResult:
-    """Outcome after setting an exact remaining leave-credit value."""
+    """Outcome after setting and enforcing one leave-credit value."""
 
     balance: LeaveBalance
     previous_remaining: Decimal
+    requested_remaining: Decimal
     new_remaining: Decimal
+    converted_to_cash: Decimal
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,6 +260,32 @@ class LeaveAllocationPlan:
     @property
     def paid_days(self) -> Decimal:
         return self.primary_days + self.fallback_days
+
+
+@dataclass(frozen=True, slots=True)
+class EmergencyAllowanceSummary:
+    """Annual EL usage tracked separately while credits remain in VL."""
+
+    used_days: Decimal
+    reserved_days: Decimal
+    remaining_days: Decimal
+    last_updated: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class LeaveCreditTableRow:
+    """Employee-facing leave ledger row with eligibility display metadata."""
+
+    leave_type: LeaveType
+    beginning_credit_days: Decimal
+    credit_days: Decimal
+    adjustment_days: Decimal
+    used_days: Decimal
+    reserved_days: Decimal
+    available_credits: Decimal
+    converted_to_cash_days: Decimal
+    updated_at: datetime | None
+    is_applicable: bool = True
 
 
 class LeaveService:
@@ -222,23 +369,26 @@ class LeaveService:
             / Decimal("2")
         ).quantize(Decimal("0.00"))
 
+    @staticmethod
+    def _annual_processing_date(year: int) -> date:
+        """Return the effective date of the yearly SL/VL accrual."""
+
+        return date(year, 1, 1)
+
     def _allocation_reference_date(
         self,
         *,
         year: int,
         as_of: date | None = None,
     ) -> date:
-        """Choose the date used for service-year entitlement computation."""
+        """Return the January processing date for annual entitlement rules.
 
-        if as_of is not None:
-            return as_of
+        ``as_of`` is retained for compatibility with callers and tests, but a
+        mid-year service anniversary must not change an already processed
+        annual credit. The +2 tenure increase is evaluated only on January 1.
+        """
 
-        today = self._today()
-        if year < today.year:
-            return date(year, 12, 31)
-        if year > today.year:
-            return date(year, 1, 1)
-        return today
+        return self._annual_processing_date(year)
 
     def calculate_annual_allocation(
         self,
@@ -248,42 +398,39 @@ class LeaveService:
         year: int,
         as_of: date | None = None,
     ) -> Decimal:
-        """Compute one employee's automatic allocation for a calendar year.
+        """Compute one employee's January SL/VL credit for a calendar year.
 
         Rules:
-        - The hire year is prorated by remaining calendar months, including
-          the hire month.
-        - Every later January starts a new full-year allocation.
-        - Vacation and Sick Leave gain two days after five completed years.
-        - LWOP always has zero credits.
+        - Vacation Leave and Sick Leave receive 15 days each every January.
+        - Employees with at least five completed service years on January 1
+          receive 17 days for each of those two leave types.
+        - A service anniversary reached after January 1 applies next year.
+        - The hire year keeps the accepted prorated entitlement behavior.
+        - Other leave types do not receive an annual Phase 2 accrual.
         """
 
         code = (leave_type.code or "").strip().upper()
-        base = Decimal(leave_type.annual_credits or Decimal("0.00"))
         hire_date = employee.hire_date
-        reference_date = self._allocation_reference_date(
-            year=year,
-            as_of=as_of,
-        )
+        processing_date = self._annual_processing_date(year)
 
-        if code == "LWOP" or not leave_type.is_paid:
+        if code not in ANNUAL_ACCRUAL_CODES:
             return Decimal("0.00")
 
         if hire_date is not None:
             if year < hire_date.year:
                 return Decimal("0.00")
-            if year == hire_date.year and reference_date < hire_date:
+            if as_of is not None and year == hire_date.year and as_of < hire_date:
                 return Decimal("0.00")
 
-        allocation = base
+        # The standard policy is fixed at 15 days. The Leave Type setting is
+        # still synchronized to 15 for existing databases by the safe default
+        # upgrade, while the computation remains explicit and auditable here.
+        allocation = ANNUAL_BASE_CREDIT
         service_years = self.completed_service_years(
             hire_date,
-            reference_date,
+            processing_date,
         )
-        if (
-            code in SERVICE_BONUS_CODES
-            and service_years >= SERVICE_BONUS_AFTER_YEARS
-        ):
+        if service_years >= SERVICE_BONUS_AFTER_YEARS:
             allocation += SERVICE_BONUS_DAYS
 
         if hire_date is not None and year == hire_date.year:
@@ -309,10 +456,7 @@ class LeaveService:
             item.code.upper(): item
             for item in self.list_leave_types(employee.company_id)
         }
-        reference_date = self._allocation_reference_date(
-            year=year,
-            as_of=as_of,
-        )
+        reference_date = self._annual_processing_date(year)
 
         def allocation(code: str) -> Decimal:
             leave_type = leave_types.get(code)
@@ -322,11 +466,11 @@ class LeaveService:
                 employee=employee,
                 leave_type=leave_type,
                 year=year,
-                as_of=reference_date,
+                as_of=as_of,
             )
 
         regular_vacation = allocation("VACATION")
-        emergency = allocation("EMERGENCY")
+        emergency = Decimal("0.00")
         sick = allocation("SICK")
         return {
             "service_years": self.completed_service_years(
@@ -335,14 +479,14 @@ class LeaveService:
             ),
             "regular_vacation": regular_vacation,
             "emergency": emergency,
-            "vacation_total": regular_vacation + emergency,
+            "vacation_total": regular_vacation,
             "sick": sick,
             "lwop": Decimal("0.00"),
             "basis": (
                 "Hire-year prorated"
                 if employee.hire_date is not None
                 and year == employee.hire_date.year
-                else "Full calendar year"
+                else "January annual accrual"
             ),
         }
 
@@ -370,15 +514,891 @@ class LeaveService:
                 spec["code"],
                 {},
             )
-            for field_name, (legacy_value, new_value) in upgrades.items():
+            for field_name, (legacy_values, new_value) in upgrades.items():
                 current_value = Decimal(getattr(existing, field_name))
-                if current_value == legacy_value:
+                if current_value in legacy_values:
                     setattr(existing, field_name, new_value)
                     changed = True
 
         if changed:
             self.session.commit()
         return self.leave_type_repository.list_company(company_id)
+
+    @staticmethod
+    def _sync_credit_table_columns(balance: LeaveBalance) -> bool:
+        """Mirror the legacy ledger into the Phase 1 table columns.
+
+        Returns True only when at least one persisted value changes. This
+        keeps old records accurate without replacing or deleting them.
+        """
+
+        expected_beginning = Decimal(balance.carry_over_days)
+        # Credit contains only automatic annual accruals or approved
+        # event grants. Administrator corrections remain independently
+        # visible in Adjustment and must never overwrite the credit source.
+        expected_credit = Decimal(balance.allocated_days)
+        changed = False
+
+        if Decimal(balance.beginning_credit_days) != expected_beginning:
+            balance.beginning_credit_days = expected_beginning
+            changed = True
+
+        if Decimal(balance.credit_days) != expected_credit:
+            balance.credit_days = expected_credit
+            changed = True
+
+        return changed
+
+
+    def _normalize_event_credit_classification(
+        self,
+        *,
+        balance: LeaveBalance,
+        leave_type: LeaveType,
+    ) -> bool:
+        """Move legacy event grants from Adjustment into Credit.
+
+        Phase 5 originally stored approved event grants in the legacy
+        adjustment bucket so they could coexist with annual accrual logic.
+        The explicit Adjustment column now requires those immutable grant
+        transactions to appear as Credit instead. Only the amount supported
+        by event-grant audit transactions is reclassified, so unrelated
+        repair adjustments remain untouched.
+        """
+
+        code = (leave_type.code or "").strip().upper()
+        if code not in EVENT_LEAVE_CODES:
+            return False
+
+        grant_total = self.session.scalar(
+            select(
+                func.coalesce(
+                    func.sum(LeaveCreditTransaction.amount_days),
+                    Decimal("0.00"),
+                )
+            ).where(
+                LeaveCreditTransaction.leave_balance_id == balance.id,
+                LeaveCreditTransaction.transaction_type
+                == EVENT_LEAVE_GRANT_TRANSACTION,
+            )
+        )
+        grant_total = max(Decimal("0.00"), Decimal(grant_total or 0))
+        allocated = Decimal(balance.allocated_days)
+        adjustment = Decimal(balance.adjustment_days)
+        amount_to_move = min(
+            max(Decimal("0.00"), grant_total - allocated),
+            max(Decimal("0.00"), adjustment),
+        )
+        if amount_to_move <= Decimal("0.00"):
+            return False
+
+        balance.allocated_days = allocated + amount_to_move
+        balance.adjustment_days = adjustment - amount_to_move
+        return True
+
+
+    def _normalize_emergency_balance(
+        self,
+        *,
+        balance: LeaveBalance,
+        leave_type: LeaveType,
+    ) -> bool:
+        """Remove legacy standalone EL credits without deleting requests.
+
+        Phase 4 treats leave requests as the source of EL usage and Vacation
+        Leave as the only paid-credit source. Older standalone EL ledger
+        values are therefore cleared once with an audit entry.
+        """
+
+        code = (leave_type.code or "").strip().upper()
+        if code != "EMERGENCY":
+            return False
+
+        tracked_values = (
+            Decimal(balance.allocated_days),
+            Decimal(balance.carry_over_days),
+            Decimal(balance.adjustment_days),
+            Decimal(balance.used_days),
+            Decimal(balance.reserved_days),
+            Decimal(balance.beginning_credit_days),
+            Decimal(balance.credit_days),
+            Decimal(balance.converted_to_cash_days),
+        )
+        if all(value == Decimal("0.00") for value in tracked_values):
+            return False
+
+        prior_usable = Decimal(balance.available_credits)
+        balance.allocated_days = Decimal("0.00")
+        balance.carry_over_days = Decimal("0.00")
+        balance.adjustment_days = Decimal("0.00")
+        balance.used_days = Decimal("0.00")
+        balance.reserved_days = Decimal("0.00")
+        balance.beginning_credit_days = Decimal("0.00")
+        balance.credit_days = Decimal("0.00")
+        balance.converted_to_cash_days = Decimal("0.00")
+
+        self.session.add(
+            LeaveCreditTransaction(
+                company_id=balance.company_id,
+                employee_id=balance.employee_id,
+                leave_type_id=balance.leave_type_id,
+                leave_balance_id=balance.id,
+                transaction_type="emergency_credit_normalization",
+                amount_days=-prior_usable,
+                note=(
+                    "Phase 4 normalization: Emergency Leave is a maximum "
+                    "three-day annual usage allowance inside Vacation Leave, "
+                    "not a separate credit balance. Existing leave requests "
+                    "and their history were preserved."
+                ),
+            )
+        )
+        return True
+
+    def _repair_negative_balance(
+        self,
+        balance: LeaveBalance,
+    ) -> Decimal:
+        """Bring one invalid legacy balance back to zero with an audit entry.
+
+        Older test data may contain more used/reserved days than the recorded
+        credits. The history is preserved; only the internal adjustment is
+        increased by the exact deficit so the usable balance becomes zero.
+        Re-running this method is idempotent.
+        """
+
+        raw_available = Decimal(
+            balance.calculated_available_credits
+        ).quantize(Decimal("0.01"))
+
+        if raw_available >= Decimal("0.00"):
+            return Decimal("0.00")
+
+        repair_days = -raw_available
+        balance.adjustment_days = (
+            Decimal(balance.adjustment_days) + repair_days
+        )
+        self._sync_credit_table_columns(balance)
+
+        self.session.add(
+            LeaveCreditTransaction(
+                company_id=balance.company_id,
+                employee_id=balance.employee_id,
+                leave_type_id=balance.leave_type_id,
+                leave_balance_id=balance.id,
+                transaction_type="negative_balance_repair",
+                amount_days=repair_days,
+                note=(
+                    "Automatic non-negative balance safeguard: "
+                    f"legacy balance {raw_available} day(s) was corrected "
+                    "to 0.00 without deleting leave usage or request history."
+                ),
+            )
+        )
+        return repair_days
+
+    @staticmethod
+    def _validate_nonnegative_balance(balance: LeaveBalance) -> None:
+        """Block any write that would persist a negative usable balance."""
+
+        raw_available = Decimal(
+            balance.calculated_available_credits
+        ).quantize(Decimal("0.01"))
+        if raw_available < Decimal("0.00"):
+            raise ValueError(
+                "Insufficient leave credits. The balance cannot go below "
+                "zero; use Leave Without Pay for the uncovered days."
+            )
+
+    @staticmethod
+    def credit_table_balances(balances) -> list[LeaveBalance]:
+        """Return the seven employee-facing leave rows in required order."""
+
+        return sorted(
+            (
+                balance
+                for balance in balances
+                if balance.leave_type.code.upper()
+                in LEAVE_CREDIT_TABLE_ORDER
+            ),
+            key=lambda balance: LEAVE_CREDIT_TABLE_ORDER[
+                balance.leave_type.code.upper()
+            ],
+        )
+
+    @staticmethod
+    def _emergency_paid_days(request: LeaveRequest) -> Decimal:
+        """Return the approved paid EL portion, excluding automatic LWOP."""
+
+        paid = (
+            Decimal(request.primary_credit_days or Decimal("0.00"))
+            + Decimal(request.fallback_credit_days or Decimal("0.00"))
+        )
+        return max(Decimal("0.00"), paid)
+
+    @staticmethod
+    def event_leave_entitlement(
+        leave_type_or_code: LeaveType | str,
+    ) -> Decimal:
+        """Return the fixed grant for one qualifying event leave request."""
+
+        code = (
+            leave_type_or_code.code
+            if isinstance(leave_type_or_code, LeaveType)
+            else leave_type_or_code
+        )
+        return EVENT_LEAVE_ENTITLEMENTS.get(
+            (code or "").strip().upper(),
+            Decimal("0.00"),
+        )
+
+    @staticmethod
+    def normalized_employee_gender(employee: Employee | None) -> str:
+        """Return a stable MALE/FEMALE value for eligibility checks."""
+
+        raw_value = (employee.gender if employee is not None else None)
+        normalized = (raw_value or "").strip().upper()
+        aliases = {
+            "M": "MALE",
+            "MALE": "MALE",
+            "F": "FEMALE",
+            "FEMALE": "FEMALE",
+        }
+        return aliases.get(normalized, normalized)
+
+    @classmethod
+    def event_leave_gender_eligibility(
+        cls,
+        *,
+        employee: Employee | None,
+        leave_type_or_code: LeaveType | str,
+    ) -> tuple[bool, str | None]:
+        """Return whether an employee may use the selected event leave."""
+
+        code = (
+            leave_type_or_code.code
+            if isinstance(leave_type_or_code, LeaveType)
+            else leave_type_or_code
+        )
+        normalized_code = (code or "").strip().upper()
+        required_gender = EVENT_LEAVE_GENDER_REQUIREMENTS.get(
+            normalized_code
+        )
+        if required_gender is None:
+            return True, None
+
+        employee_gender = cls.normalized_employee_gender(employee)
+        if employee_gender == required_gender:
+            return True, None
+
+        leave_name = (
+            leave_type_or_code.name
+            if isinstance(leave_type_or_code, LeaveType)
+            else normalized_code.title()
+        )
+        required_label = required_gender.title()
+        if employee_gender not in {"MALE", "FEMALE"}:
+            return (
+                False,
+                f"{leave_name} requires the employee gender to be recorded "
+                f"as {required_label}. Update the employee profile before "
+                "filing or approving this request.",
+            )
+
+        return (
+            False,
+            f"{leave_name} is available only to employees recorded as "
+            f"{required_label}.",
+        )
+
+    @classmethod
+    def is_event_leave_gender_eligible(
+        cls,
+        *,
+        employee: Employee | None,
+        leave_type_or_code: LeaveType | str,
+    ) -> bool:
+        """Convenience boolean used by the employee request UI."""
+
+        eligible, _ = cls.event_leave_gender_eligibility(
+            employee=employee,
+            leave_type_or_code=leave_type_or_code,
+        )
+        return eligible
+
+    @classmethod
+    def _validate_event_leave_gender_eligibility(
+        cls,
+        *,
+        employee: Employee | None,
+        leave_type_or_code: LeaveType | str,
+    ) -> None:
+        """Reject ineligible Maternity/Paternity requests consistently."""
+
+        eligible, message = cls.event_leave_gender_eligibility(
+            employee=employee,
+            leave_type_or_code=leave_type_or_code,
+        )
+        if not eligible:
+            raise ValueError(message or "The selected leave is unavailable.")
+
+    @staticmethod
+    def leave_entitlement_display(leave_type_or_code: LeaveType | str) -> str:
+        """Return the policy allowance label for explanatory UI text."""
+
+        code = (
+            leave_type_or_code.code
+            if isinstance(leave_type_or_code, LeaveType)
+            else leave_type_or_code
+        )
+        normalized_code = (code or "").strip().upper()
+        labels = {
+            "VACATION": "15 / 17 annually",
+            "EMERGENCY": "3 max/year from VL",
+            "SICK": "15 / 17 annually",
+            "HONEYMOON": "5 one-time",
+            "MATERNITY": "105 per event · Female",
+            "PATERNITY": "7 per event · Male",
+            "BEREAVEMENT": "7 per event",
+        }
+        return labels.get(normalized_code, "—")
+
+    @staticmethod
+    def supports_cash_conversion(
+        leave_type_or_code: LeaveType | str,
+    ) -> bool:
+        """Return True only for leave types allowed to convert to cash."""
+
+        code = (
+            leave_type_or_code.code
+            if isinstance(leave_type_or_code, LeaveType)
+            else leave_type_or_code
+        )
+        return (code or "").strip().upper() in CASH_CONVERSION_LIMITS
+
+    def _honeymoon_request_exists(
+        self,
+        *,
+        company_id: int,
+        employee_id: int,
+        exclude_request_id: int | None = None,
+    ) -> bool:
+        """Return whether the employee already claimed or filed Honeymoon Leave."""
+
+        for request in self.request_repository.list_employee(
+            company_id,
+            employee_id,
+        ):
+            code = (
+                request.leave_type.code
+                if request.leave_type is not None
+                else ""
+            ).strip().upper()
+            if code != "HONEYMOON":
+                continue
+            if (
+                exclude_request_id is not None
+                and request.id == exclude_request_id
+            ):
+                continue
+            if request.status in EVENT_LEAVE_NON_REJECTED_STATUSES:
+                return True
+        return False
+
+    def event_leave_preview_entitlement(
+        self,
+        *,
+        company_id: int,
+        employee_id: int,
+        leave_type: LeaveType,
+    ) -> Decimal:
+        """Return the grant expected if a new event request is approved."""
+
+        code = (leave_type.code or "").strip().upper()
+        entitlement = self.event_leave_entitlement(code)
+        if entitlement <= Decimal("0.00"):
+            return Decimal("0.00")
+
+        employee = self.employee_repository.get_with_details(
+            company_id=company_id,
+            employee_id=employee_id,
+        )
+        if not self.is_event_leave_gender_eligible(
+            employee=employee,
+            leave_type_or_code=leave_type,
+        ):
+            return Decimal("0.00")
+        if code == "HONEYMOON" and self._honeymoon_request_exists(
+            company_id=company_id,
+            employee_id=employee_id,
+        ):
+            return Decimal("0.00")
+        return entitlement
+
+    def _event_grant_already_posted(
+        self,
+        request: LeaveRequest,
+    ) -> bool:
+        """Keep one immutable entitlement grant per approved event request."""
+
+        count = self.session.scalar(
+            select(func.count(LeaveCreditTransaction.id)).where(
+                LeaveCreditTransaction.leave_request_id == request.id,
+                LeaveCreditTransaction.transaction_type
+                == EVENT_LEAVE_GRANT_TRANSACTION,
+            )
+        )
+        return bool(count)
+
+    def _grant_event_leave_entitlement(
+        self,
+        *,
+        request: LeaveRequest,
+        created_by_user_id: int,
+    ) -> Decimal:
+        """Post the fixed event entitlement before reserving approved days."""
+
+        code = (
+            request.leave_type.code
+            if request.leave_type is not None
+            else ""
+        ).strip().upper()
+        entitlement = self.event_leave_entitlement(code)
+        if entitlement <= Decimal("0.00"):
+            return Decimal("0.00")
+        if self._event_grant_already_posted(request):
+            return Decimal("0.00")
+
+        self._validate_event_leave_gender_eligibility(
+            employee=request.employee,
+            leave_type_or_code=request.leave_type,
+        )
+
+        if code == "HONEYMOON" and self._honeymoon_request_exists(
+            company_id=request.company_id,
+            employee_id=request.employee_id,
+            exclude_request_id=request.id,
+        ):
+            raise ValueError(
+                "Honeymoon Leave is a one-time five-day benefit and has "
+                "already been requested or used by this employee."
+            )
+
+        balance = self._ensure_balance(
+            company_id=request.company_id,
+            employee_id=request.employee_id,
+            leave_type=request.leave_type,
+            year=request.start_date.year,
+            employee=request.employee,
+            as_of=self._today(),
+        )
+        balance.allocated_days = (
+            Decimal(balance.allocated_days) + entitlement
+        )
+        self._sync_credit_table_columns(balance)
+        self._validate_nonnegative_balance(balance)
+        self.session.add(
+            LeaveCreditTransaction(
+                company_id=request.company_id,
+                employee_id=request.employee_id,
+                leave_type_id=request.leave_type_id,
+                leave_balance_id=balance.id,
+                leave_request_id=request.id,
+                created_by_user_id=created_by_user_id,
+                transaction_type=EVENT_LEAVE_GRANT_TRANSACTION,
+                amount_days=entitlement,
+                note=(
+                    f"Phase 5 qualifying event grant for "
+                    f"{request.public_id}: {entitlement} day(s) of "
+                    f"{request.leave_type.name}."
+                ),
+            )
+        )
+        return entitlement
+
+    def emergency_allowance_summary(
+        self,
+        *,
+        company_id: int,
+        employee_id: int,
+        year: int,
+    ) -> EmergencyAllowanceSummary:
+        """Return annual EL used, reserved, and remaining allowance.
+
+        Emergency Leave has no separate credit bucket. Approved EL days are
+        funded from Vacation Leave, while this summary independently enforces
+        the maximum three-day annual EL classification.
+        """
+
+        used = Decimal("0.00")
+        reserved = Decimal("0.00")
+        last_updated = None
+
+        for request in self.request_repository.list_employee(
+            company_id,
+            employee_id,
+        ):
+            code = (
+                request.leave_type.code
+                if request.leave_type is not None
+                else ""
+            ).strip().upper()
+            if (
+                code != "EMERGENCY"
+                or request.start_date.year != int(year)
+                or request.status not in EMERGENCY_ACTIVE_STATUSES
+            ):
+                continue
+
+            paid_days = min(
+                EMERGENCY_USAGE_LIMIT,
+                self._emergency_paid_days(request),
+            )
+            posted_days = min(
+                paid_days,
+                max(
+                    Decimal("0.00"),
+                    Decimal(
+                        request.posted_working_days
+                        or Decimal("0.00")
+                    ),
+                ),
+            )
+            used += posted_days
+            reserved += max(
+                Decimal("0.00"),
+                paid_days - posted_days,
+            )
+
+            candidate = request.updated_at or request.reviewed_at
+            if candidate is not None and (
+                last_updated is None or candidate > last_updated
+            ):
+                last_updated = candidate
+
+        committed = min(
+            EMERGENCY_USAGE_LIMIT,
+            used + reserved,
+        )
+        return EmergencyAllowanceSummary(
+            used_days=used.quantize(Decimal("0.01")),
+            reserved_days=reserved.quantize(Decimal("0.01")),
+            remaining_days=max(
+                Decimal("0.00"),
+                EMERGENCY_USAGE_LIMIT - committed,
+            ).quantize(Decimal("0.01")),
+            last_updated=last_updated,
+        )
+
+    def credit_table_rows(
+        self,
+        *,
+        company_id: int,
+        employee_id: int,
+        year: int,
+        balances=None,
+    ) -> list[LeaveCreditTableRow]:
+        """Build the seven display rows without double-counting EL credits."""
+
+        selected_balances = list(
+            balances
+            if balances is not None
+            else self.list_employee_balances(
+                company_id,
+                employee_id,
+                year,
+            )
+        )
+        emergency = self.emergency_allowance_summary(
+            company_id=company_id,
+            employee_id=employee_id,
+            year=year,
+        )
+        employee = self.employee_repository.get_with_details(
+            company_id=company_id,
+            employee_id=employee_id,
+        )
+        rows: list[LeaveCreditTableRow] = []
+
+        for balance in self.credit_table_balances(selected_balances):
+            code = (balance.leave_type.code or "").strip().upper()
+            is_applicable = self.is_event_leave_gender_eligible(
+                employee=employee,
+                leave_type_or_code=balance.leave_type,
+            )
+            if code == "EMERGENCY":
+                updated_at = emergency.last_updated or balance.updated_at
+                rows.append(
+                    LeaveCreditTableRow(
+                        leave_type=balance.leave_type,
+                        beginning_credit_days=Decimal("0.00"),
+                        credit_days=Decimal("0.00"),
+                        adjustment_days=Decimal("0.00"),
+                        used_days=emergency.used_days,
+                        reserved_days=emergency.reserved_days,
+                        available_credits=emergency.remaining_days,
+                        converted_to_cash_days=Decimal("0.00"),
+                        updated_at=updated_at,
+                        is_applicable=True,
+                    )
+                )
+                continue
+
+            actual_available = Decimal(balance.available_credits)
+            display_available = actual_available
+
+            # Event-based rows show their fixed policy allowance directly in
+            # Available Credits before a grant exists. Once a grant has an
+            # active remaining or reserved balance, the row shows the real
+            # ledger remainder. Honeymoon automatically returns zero after
+            # its one-time benefit has already been requested or used.
+            if code in EVENT_LEAVE_CODES:
+                preview_allowance = self.event_leave_preview_entitlement(
+                    company_id=company_id,
+                    employee_id=employee_id,
+                    leave_type=balance.leave_type,
+                )
+                if (
+                    actual_available <= Decimal("0.00")
+                    and Decimal(balance.reserved_days)
+                    <= Decimal("0.00")
+                ):
+                    display_available = preview_allowance
+
+            rows.append(
+                LeaveCreditTableRow(
+                    leave_type=balance.leave_type,
+                    beginning_credit_days=Decimal(
+                        balance.beginning_credit_days
+                    ),
+                    credit_days=Decimal(balance.credit_days),
+                    adjustment_days=Decimal(balance.adjustment_days),
+                    used_days=Decimal(balance.used_days),
+                    reserved_days=Decimal(balance.reserved_days),
+                    available_credits=display_available,
+                    converted_to_cash_days=Decimal(
+                        balance.converted_to_cash_days
+                    ),
+                    updated_at=balance.updated_at,
+                    is_applicable=is_applicable,
+                )
+            )
+
+        return rows
+
+    @staticmethod
+    def _annual_beginning_credit(
+        *,
+        leave_type: LeaveType,
+        previous_balance: LeaveBalance | None,
+    ) -> Decimal:
+        """Carry only the prior year's post-conversion available balance.
+
+        ``available_credits`` already excludes amounts recorded in
+        ``converted_to_cash_days``. This prevents a converted amount from
+        returning as Beginning Credit in a later leave year.
+        """
+
+        code = (leave_type.code or "").strip().upper()
+        if code not in ANNUAL_ACCRUAL_CODES or previous_balance is None:
+            return Decimal("0.00")
+
+        return max(
+            Decimal("0.00"),
+            Decimal(previous_balance.available_credits),
+        ).quantize(Decimal("0.00"))
+
+    @staticmethod
+    def _cash_conversion_limit(leave_type: LeaveType) -> Decimal | None:
+        """Return the fixed retained limit for SL or VL."""
+
+        code = (leave_type.code or "").strip().upper()
+        return CASH_CONVERSION_LIMITS.get(code)
+
+    def _cash_conversion_already_processed(
+        self,
+        balance: LeaveBalance,
+    ) -> bool:
+        """Return True when this annual ledger already has its cash marker."""
+
+        count = self.session.scalar(
+            select(func.count(LeaveCreditTransaction.id)).where(
+                LeaveCreditTransaction.leave_balance_id == balance.id,
+                LeaveCreditTransaction.transaction_type
+                == CASH_CONVERSION_TRANSACTION,
+            )
+        )
+        return bool(count)
+
+    @staticmethod
+    def _opening_cash_conversion_amount(
+        *,
+        balance: LeaveBalance,
+        retained_limit: Decimal,
+    ) -> Decimal:
+        """Calculate the annual excess using the approved ledger formula.
+
+        Total Before Conversion = Beginning Credit + Credit + Adjustment - Used
+        Converted to Cash = max(Total Before Conversion - Limit, 0)
+
+        Reserved days are intentionally excluded from the conversion formula;
+        they remain separately deducted from usable credits until the related
+        request is approved, rejected, or cancelled.
+        """
+
+        total_before_conversion = (
+            Decimal(balance.beginning_credit_days)
+            + Decimal(balance.credit_days)
+            + Decimal(balance.adjustment_days)
+            - Decimal(balance.used_days)
+        )
+        return max(
+            Decimal("0.00"),
+            total_before_conversion - Decimal(retained_limit),
+        ).quantize(Decimal("0.00"))
+
+    def _apply_january_cash_conversion(
+        self,
+        *,
+        balance: LeaveBalance,
+        leave_type: LeaveType,
+        year: int,
+    ) -> Decimal:
+        """Apply one immutable January SL/VL cash-conversion calculation.
+
+        A zero-value marker is also stored. This keeps processing idempotent
+        and prevents later leave usage or manual adjustments from rewriting
+        the January conversion result.
+        """
+
+        retained_limit = self._cash_conversion_limit(leave_type)
+        if retained_limit is None:
+            balance.converted_to_cash_days = Decimal("0.00")
+            return Decimal("0.00")
+
+        if self._cash_conversion_already_processed(balance):
+            return Decimal(balance.converted_to_cash_days)
+
+        converted = self._opening_cash_conversion_amount(
+            balance=balance,
+            retained_limit=retained_limit,
+        )
+        balance.converted_to_cash_days = converted
+
+        self.session.add(
+            LeaveCreditTransaction(
+                company_id=balance.company_id,
+                employee_id=balance.employee_id,
+                leave_type_id=balance.leave_type_id,
+                leave_balance_id=balance.id,
+                transaction_type=CASH_CONVERSION_TRANSACTION,
+                # A conversion removes days from the usable credit ledger.
+                amount_days=-converted,
+                note=(
+                    f"January {year} cash conversion: retained limit "
+                    f"{retained_limit} day(s); converted excess "
+                    f"{converted} day(s)."
+                ),
+            )
+        )
+        return converted
+
+    def _enforce_cash_conversion_limit(
+        self,
+        *,
+        balance: LeaveBalance,
+        leave_type: LeaveType,
+        created_by_user_id: int | None = None,
+        source: str = "automatic balance validation",
+    ) -> Decimal:
+        """Move any current SL/VL excess out of usable credits.
+
+        January processing performs the scheduled annual conversion. This
+        additional invariant protects every later write path, including
+        manual administrator updates and legacy records created before Phase
+        3. It is naturally idempotent because converted days are immediately
+        removed from ``calculated_available_credits``.
+        """
+
+        retained_limit = self._cash_conversion_limit(leave_type)
+        if retained_limit is None:
+            return Decimal("0.00")
+
+        current_available = Decimal(
+            balance.calculated_available_credits
+        ).quantize(Decimal("0.01"))
+        excess = max(
+            Decimal("0.00"),
+            current_available - retained_limit,
+        ).quantize(Decimal("0.01"))
+
+        if excess <= Decimal("0.00"):
+            return Decimal("0.00")
+
+        balance.converted_to_cash_days = (
+            Decimal(balance.converted_to_cash_days) + excess
+        ).quantize(Decimal("0.01"))
+
+        self.session.add(
+            LeaveCreditTransaction(
+                company_id=balance.company_id,
+                employee_id=balance.employee_id,
+                leave_type_id=balance.leave_type_id,
+                leave_balance_id=balance.id,
+                created_by_user_id=created_by_user_id,
+                transaction_type=(
+                    CASH_CONVERSION_LIMIT_ENFORCEMENT_TRANSACTION
+                ),
+                amount_days=-excess,
+                note=(
+                    f"{source}: retained limit {retained_limit} day(s); "
+                    f"converted excess {excess} day(s)."
+                ),
+            )
+        )
+        return excess
+
+    def _sync_balance_beginning_credit(
+        self,
+        *,
+        balance: LeaveBalance,
+        leave_type: LeaveType,
+        year: int,
+    ) -> None:
+        """Synchronize the current annual beginning credit non-destructively."""
+
+        previous = self.balance_repository.get_balance(
+            company_id=balance.company_id,
+            employee_id=balance.employee_id,
+            leave_type_id=balance.leave_type_id,
+            year=year - 1,
+        )
+        expected = self._annual_beginning_credit(
+            leave_type=leave_type,
+            previous_balance=previous,
+        )
+        current = Decimal(balance.carry_over_days)
+        if current == expected:
+            return
+
+        difference = expected - current
+        balance.carry_over_days = expected
+        balance.beginning_credit_days = expected
+        self.session.add(
+            LeaveCreditTransaction(
+                company_id=balance.company_id,
+                employee_id=balance.employee_id,
+                leave_type_id=balance.leave_type_id,
+                leave_balance_id=balance.id,
+                transaction_type="january_beginning_credit_update",
+                amount_days=difference,
+                note=(
+                    f"Beginning credit for {year} synchronized from the "
+                    f"unused {year - 1} balance; beginning credit is now "
+                    f"{expected} day(s)."
+                ),
+            )
+        )
 
     def _sync_balance_allocation(
         self,
@@ -390,6 +1410,10 @@ class LeaveService:
         as_of: date | None = None,
     ) -> None:
         """Synchronize only the automatic allocation portion of a balance."""
+
+        code = (leave_type.code or "").strip().upper()
+        if code in EVENT_LEAVE_CODES:
+            return
 
         expected = self.calculate_annual_allocation(
             employee=employee,
@@ -403,18 +1427,19 @@ class LeaveService:
 
         difference = expected - current
         balance.allocated_days = expected
+        self._sync_credit_table_columns(balance)
         self.session.add(
             LeaveCreditTransaction(
                 company_id=balance.company_id,
                 employee_id=balance.employee_id,
                 leave_type_id=balance.leave_type_id,
                 leave_balance_id=balance.id,
-                transaction_type="automatic_allocation_update",
+                transaction_type="january_annual_accrual_update",
                 amount_days=difference,
                 note=(
-                    f"Automatic {year} entitlement recalculated from hire "
-                    f"date and completed service years; allocation is now "
-                    f"{expected} day(s)."
+                    f"January {year} annual accrual recalculated from the "
+                    f"employee's completed service years on January 1; "
+                    f"credit is now {expected} day(s)."
                 ),
             )
         )
@@ -443,9 +1468,15 @@ class LeaveService:
             year=year,
         )
         if existing is not None:
-            # Existing historical balances remain immutable. Current-year and
-            # explicitly dated request balances receive anniversary updates.
-            if year == self._today().year or as_of is not None:
+            # Historical records remain unchanged. The selected annual ledger
+            # is synchronized idempotently to the January rules so databases
+            # created by older checkpoints receive the corrected SL/VL credit.
+            if year >= self._today().year or as_of is not None:
+                self._sync_balance_beginning_credit(
+                    balance=existing,
+                    leave_type=leave_type,
+                    year=year,
+                )
                 self._sync_balance_allocation(
                     balance=existing,
                     employee=employee,
@@ -453,20 +1484,38 @@ class LeaveService:
                     year=year,
                     as_of=as_of,
                 )
+            self._normalize_emergency_balance(
+                balance=existing,
+                leave_type=leave_type,
+            )
+            self._normalize_event_credit_classification(
+                balance=existing,
+                leave_type=leave_type,
+            )
+            self._sync_credit_table_columns(existing)
+            self._apply_january_cash_conversion(
+                balance=existing,
+                leave_type=leave_type,
+                year=year,
+            )
+            self._enforce_cash_conversion_limit(
+                balance=existing,
+                leave_type=leave_type,
+                source="Automatic retained-limit repair",
+            )
+            self._repair_negative_balance(existing)
             return existing
 
-        carry_over = Decimal("0.00")
         previous = self.balance_repository.get_balance(
             company_id=company_id,
             employee_id=employee_id,
             leave_type_id=leave_type.id,
             year=year - 1,
         )
-        if previous is not None:
-            carry_over = min(
-                max(Decimal("0.00"), Decimal(previous.remaining_days)),
-                Decimal(leave_type.carry_over_limit),
-            )
+        carry_over = self._annual_beginning_credit(
+            leave_type=leave_type,
+            previous_balance=previous,
+        )
 
         allocation = self.calculate_annual_allocation(
             employee=employee,
@@ -484,6 +1533,9 @@ class LeaveService:
             adjustment_days=Decimal("0.00"),
             used_days=Decimal("0.00"),
             reserved_days=Decimal("0.00"),
+            beginning_credit_days=carry_over,
+            credit_days=allocation,
+            converted_to_cash_days=Decimal("0.00"),
         )
         self.session.add(balance)
         self.session.flush()
@@ -493,11 +1545,11 @@ class LeaveService:
                 employee_id=employee_id,
                 leave_type_id=leave_type.id,
                 leave_balance_id=balance.id,
-                transaction_type="annual_allocation",
+                transaction_type="january_annual_accrual",
                 amount_days=allocation,
                 note=(
-                    f"Automatic {year} allocation based on hire date and "
-                    "completed service years"
+                    f"January {year} annual accrual based on completed "
+                    "service years as of January 1"
                 ),
             )
         )
@@ -508,11 +1560,22 @@ class LeaveService:
                     employee_id=employee_id,
                     leave_type_id=leave_type.id,
                     leave_balance_id=balance.id,
-                    transaction_type="carry_over",
+                    transaction_type="january_beginning_credit",
                     amount_days=carry_over,
-                    note=f"Carry-over from {year - 1}",
+                    note=f"Unused SL/VL balance carried from {year - 1}",
                 )
             )
+        self._apply_january_cash_conversion(
+            balance=balance,
+            leave_type=leave_type,
+            year=year,
+        )
+        self._enforce_cash_conversion_limit(
+            balance=balance,
+            leave_type=leave_type,
+            source="Automatic retained-limit validation",
+        )
+        self._validate_nonnegative_balance(balance)
         return balance
 
     def ensure_current_year_balances(
@@ -520,7 +1583,11 @@ class LeaveService:
         company_id: int,
         year: int | None = None,
     ) -> None:
-        """Create/reset annual balances and apply due service bonuses."""
+        """Run idempotent January accrual processing for company employees.
+
+        Accessing the portal safely performs the batch when the selected year
+        has not yet been processed. Running it again never duplicates credits.
+        """
 
         selected_year = year or self._today().year
         leave_types = self.ensure_default_leave_types(company_id)
@@ -541,6 +1608,10 @@ class LeaveService:
                     year=selected_year,
                     employee=employee,
                 )
+
+        # Automatic app-start processing must persist even when there are no
+        # approved leave requests for the reconciliation step to commit.
+        self.session.commit()
         self.session.commit()
 
     def list_leave_types(self, company_id: int, *, active_only: bool = False) -> list[LeaveType]:
@@ -615,6 +1686,18 @@ class LeaveService:
         employee = self.employee_repository.get_with_details(company_id=values.company_id, employee_id=values.employee_id)
         if leave_type is None or employee is None:
             raise ValueError("The selected employee or leave type is unavailable.")
+        selected_code = (leave_type.code or "").strip().upper()
+        if selected_code == "EMERGENCY":
+            raise ValueError(
+                "Emergency Leave has no independent credit balance. Its "
+                "three-day annual allowance is automatically deducted from "
+                "Vacation Leave."
+            )
+        if selected_code in EVENT_LEAVE_CODES:
+            raise ValueError(
+                f"{leave_type.name} credits are created automatically only "
+                "after manager approval of a qualifying event request."
+            )
         balance = self._ensure_balance(
             company_id=values.company_id,
             employee_id=values.employee_id,
@@ -625,6 +1708,14 @@ class LeaveService:
         if prospective < Decimal("0.00"):
             raise ValueError("The adjustment would make the remaining balance negative.")
         balance.adjustment_days = Decimal(balance.adjustment_days) + Decimal(values.adjustment_days)
+        self._sync_credit_table_columns(balance)
+        self._enforce_cash_conversion_limit(
+            balance=balance,
+            leave_type=leave_type,
+            created_by_user_id=values.created_by_user_id,
+            source="Manual credit adjustment",
+        )
+        self._validate_nonnegative_balance(balance)
         self.session.add(
             LeaveCreditTransaction(
                 company_id=values.company_id,
@@ -645,12 +1736,15 @@ class LeaveService:
         self,
         values: LeaveCreditBalanceSetInput,
     ) -> LeaveCreditBalanceSetResult:
-        """Set the exact remaining credits instead of adding a delta.
+        """Set credits and automatically cash-convert SL/VL excess.
 
-        The stored adjustment component is recalculated internally so the
-        public remaining balance exactly matches ``new_remaining_days``.
-        Annual allocation, carry-over, used days, and reserved days remain
-        unchanged.
+        The administrator enters the intended usable balance. The service
+        preserves Beginning Credit and Credit, then records only the required
+        difference in Adjustment. For Sick Leave and Vacation Leave, any
+        portion above the fixed retained limit is
+        transferred to ``converted_to_cash_days`` during the same database
+        transaction. The resulting usable balance therefore never exceeds 15
+        SL days or 45 VL days.
         """
 
         leave_type = self.leave_type_repository.get_by_id(
@@ -666,6 +1760,18 @@ class LeaveService:
             raise ValueError(
                 "The selected employee or leave type is unavailable."
             )
+        selected_code = (leave_type.code or "").strip().upper()
+        if selected_code == "EMERGENCY":
+            raise ValueError(
+                "Emergency Leave has no independent credit balance. Its "
+                "three-day annual allowance is automatically deducted from "
+                "Vacation Leave."
+            )
+        if selected_code in EVENT_LEAVE_CODES:
+            raise ValueError(
+                f"{leave_type.name} credits are created automatically only "
+                "after manager approval of a qualifying event request."
+            )
 
         balance = self._ensure_balance(
             company_id=values.company_id,
@@ -677,24 +1783,56 @@ class LeaveService:
         previous_remaining = Decimal(
             balance.remaining_days
         ).quantize(Decimal("0.01"))
-        new_remaining = Decimal(
+        requested_remaining = Decimal(
             values.new_remaining_days
         ).quantize(Decimal("0.01"))
 
-        if new_remaining == previous_remaining:
-            raise ValueError(
-                f"{leave_type.name} already has "
-                f"{new_remaining} remaining credits."
-            )
-
-        internal_difference = (
-            new_remaining - previous_remaining
+        retained_limit = self._cash_conversion_limit(leave_type)
+        expected_remaining = (
+            min(requested_remaining, retained_limit)
+            if retained_limit is not None
+            else requested_remaining
+        ).quantize(Decimal("0.01"))
+        expected_conversion = (
+            max(
+                Decimal("0.00"),
+                requested_remaining - retained_limit,
+            ).quantize(Decimal("0.01"))
+            if retained_limit is not None
+            else Decimal("0.00")
         )
 
+        if (
+            expected_remaining == previous_remaining
+            and expected_conversion == Decimal("0.00")
+        ):
+            raise ValueError(
+                f"{leave_type.name} already has "
+                f"{expected_remaining} remaining credits."
+            )
+
+        # Apply the requested amount relative to the current usable balance.
+        # The invariant below then removes any portion above the retained
+        # limit and records it in Converted to Cash.
+        internal_difference = (
+            requested_remaining - previous_remaining
+        )
         balance.adjustment_days = (
             Decimal(balance.adjustment_days)
             + internal_difference
         )
+        self._sync_credit_table_columns(balance)
+
+        converted_to_cash = self._enforce_cash_conversion_limit(
+            balance=balance,
+            leave_type=leave_type,
+            created_by_user_id=values.created_by_user_id,
+            source="Manual leave credit update",
+        )
+        self._validate_nonnegative_balance(balance)
+        actual_remaining = Decimal(
+            balance.remaining_days
+        ).quantize(Decimal("0.01"))
 
         self.session.add(
             LeaveCreditTransaction(
@@ -705,11 +1843,13 @@ class LeaveService:
                 created_by_user_id=values.created_by_user_id,
                 transaction_type="manual_balance_set",
                 # For this transaction type, amount_days stores the exact
-                # resulting balance rather than a signed adjustment.
-                amount_days=new_remaining,
+                # resulting usable balance after conversion.
+                amount_days=actual_remaining,
                 note=(
                     f"Previous balance: {previous_remaining} days | "
-                    f"New balance: {new_remaining} days"
+                    f"New balance: {actual_remaining} days | "
+                    f"Requested credits: {requested_remaining} days | "
+                    f"Converted to cash: {converted_to_cash} days"
                 ),
             )
         )
@@ -720,7 +1860,9 @@ class LeaveService:
         return LeaveCreditBalanceSetResult(
             balance=balance,
             previous_remaining=previous_remaining,
-            new_remaining=new_remaining,
+            requested_remaining=requested_remaining,
+            new_remaining=actual_remaining,
+            converted_to_cash=converted_to_cash,
         )
 
     def list_credit_history(self, company_id: int, employee_id: int, year: int | None = None):
@@ -755,6 +1897,7 @@ class LeaveService:
         year: int,
         requested_days: Decimal,
         as_of: date | None = None,
+        virtual_primary_credit: Decimal = Decimal("0.00"),
     ) -> LeaveAllocationPlan:
         """Split requested days into paid credits and automatic LWOP."""
 
@@ -778,26 +1921,25 @@ class LeaveService:
             employee=employee,
             as_of=as_of,
         )
-        primary_available = max(
-            Decimal("0.00"),
-            Decimal(primary_balance.remaining_days),
-        )
-        primary_days = min(requested, primary_available)
-        remaining = requested - primary_days
 
-        fallback_balance = None
-        fallback_days = Decimal("0.00")
-
-        # Emergency Leave is the protected three-day portion of the combined
-        # Vacation entitlement. Excess emergency days therefore use regular
-        # Vacation credits before becoming LWOP.
-        if code == "EMERGENCY" and remaining > 0:
+        if code == "EMERGENCY":
+            # The EL row is only an annual three-day usage tracker. Paid EL
+            # days are reserved and posted exclusively against Vacation Leave
+            # so no additional leave credits are created.
+            summary = self.emergency_allowance_summary(
+                company_id=company_id,
+                employee_id=employee.id,
+                year=year,
+            )
             vacation_type = self.leave_type_repository.get_by_code(
                 company_id,
                 "VACATION",
             )
+            vacation_balance = None
+            vacation_available = Decimal("0.00")
+
             if vacation_type is not None and vacation_type.is_active:
-                fallback_balance = self._ensure_balance(
+                vacation_balance = self._ensure_balance(
                     company_id=company_id,
                     employee_id=employee.id,
                     leave_type=vacation_type,
@@ -805,18 +1947,48 @@ class LeaveService:
                     employee=employee,
                     as_of=as_of,
                 )
-                fallback_available = max(
+                vacation_available = max(
                     Decimal("0.00"),
-                    Decimal(fallback_balance.remaining_days),
+                    Decimal(vacation_balance.remaining_days),
                 )
-                fallback_days = min(remaining, fallback_available)
-                remaining -= fallback_days
+
+            paid_emergency = min(
+                requested,
+                summary.remaining_days,
+                vacation_available,
+            )
+            return LeaveAllocationPlan(
+                primary_balance=primary_balance,
+                primary_days=Decimal("0.00"),
+                fallback_balance=vacation_balance,
+                fallback_days=paid_emergency,
+                lwop_days=max(
+                    Decimal("0.00"),
+                    requested - paid_emergency,
+                ),
+            )
+
+        primary_available = max(
+            Decimal("0.00"),
+            Decimal(primary_balance.remaining_days)
+            + Decimal(virtual_primary_credit),
+        )
+        event_limit = self.event_leave_entitlement(code)
+        primary_days = min(
+            requested,
+            primary_available,
+            event_limit,
+        ) if event_limit > Decimal("0.00") else min(
+            requested,
+            primary_available,
+        )
+        remaining = requested - primary_days
 
         return LeaveAllocationPlan(
             primary_balance=primary_balance,
             primary_days=primary_days,
-            fallback_balance=fallback_balance,
-            fallback_days=fallback_days,
+            fallback_balance=None,
+            fallback_days=Decimal("0.00"),
             lwop_days=max(Decimal("0.00"), remaining),
         )
 
@@ -836,15 +2008,29 @@ class LeaveService:
         )
         lwop_days = Decimal(request.lwop_days or Decimal("0.00"))
 
-        if primary_days > 0:
-            parts.append(
-                f"{format_days(primary_days)} {request.leave_type.name}"
-            )
-        if fallback_days > 0 and request.fallback_leave_type is not None:
-            parts.append(
-                f"{format_days(fallback_days)} "
-                f"{request.fallback_leave_type.name}"
-            )
+        request_code = (
+            request.leave_type.code
+            if request.leave_type is not None
+            else ""
+        ).strip().upper()
+
+        if request_code == "EMERGENCY":
+            paid_emergency = primary_days + fallback_days
+            if paid_emergency > 0:
+                parts.append(
+                    f"{format_days(paid_emergency)} Emergency Leave "
+                    "(deducted from Vacation Leave)"
+                )
+        else:
+            if primary_days > 0:
+                parts.append(
+                    f"{format_days(primary_days)} {request.leave_type.name}"
+                )
+            if fallback_days > 0 and request.fallback_leave_type is not None:
+                parts.append(
+                    f"{format_days(fallback_days)} "
+                    f"{request.fallback_leave_type.name}"
+                )
         if lwop_days > 0:
             parts.append(f"{format_days(lwop_days)} LWOP")
 
@@ -898,6 +2084,20 @@ class LeaveService:
                 "The selected leave type is unavailable."
             )
 
+        selected_code = (leave_type.code or "").strip().upper()
+        self._validate_event_leave_gender_eligibility(
+            employee=employee,
+            leave_type_or_code=leave_type,
+        )
+        if selected_code == "HONEYMOON" and self._honeymoon_request_exists(
+            company_id=values.company_id,
+            employee_id=values.employee_id,
+        ):
+            raise ValueError(
+                "Honeymoon Leave is a one-time five-day benefit and has "
+                "already been requested or used by this employee."
+            )
+
         manager = employee.manager
         manager_email = self._email_for_employee(manager)
 
@@ -931,9 +2131,14 @@ class LeaveService:
                 f"{leave_type.minimum_notice_days} days notice."
             )
 
-        # Compute a preview split without reserving credits. If the selected
-        # paid bucket is insufficient, the excess is automatically classified
-        # as LWOP instead of rejecting the request.
+        # Compute a preview split without reserving credits. Event-based
+        # requests include their prospective fixed grant only for preview; the
+        # real credit is posted exactly once after manager approval.
+        preview_event_credit = self.event_leave_preview_entitlement(
+            company_id=values.company_id,
+            employee_id=values.employee_id,
+            leave_type=leave_type,
+        )
         allocation = self._request_allocation_plan(
             company_id=values.company_id,
             employee=employee,
@@ -941,6 +2146,7 @@ class LeaveService:
             year=values.start_date.year,
             requested_days=requested_days,
             as_of=today,
+            virtual_primary_credit=preview_event_credit,
         )
 
         requirement = (
@@ -1353,6 +2559,12 @@ class LeaveService:
                 "This leave request has already been reviewed."
             )
 
+        if values.decision == "approve":
+            self._validate_event_leave_gender_eligibility(
+                employee=request.employee,
+                leave_type_or_code=request.leave_type,
+            )
+
         now = datetime.now(timezone.utc)
         request.reviewed_at = now
         request.reviewed_by_user_id = values.manager_user_id
@@ -1363,6 +2575,13 @@ class LeaveService:
             request.reservation_posted = False
             decision_label = "Rejected"
         else:
+            # A manager approval is the qualifying event. Post the fixed
+            # event-based entitlement first, then reserve only the covered
+            # portion; any excess remains automatic LWOP.
+            self._grant_event_leave_entitlement(
+                request=request,
+                created_by_user_id=values.manager_user_id,
+            )
             allocation = self._request_allocation_plan(
                 company_id=request.company_id,
                 employee=request.employee,
@@ -1394,6 +2613,7 @@ class LeaveService:
                     Decimal(reserved_balance.reserved_days)
                     + reserved_days
                 )
+                self._validate_nonnegative_balance(reserved_balance)
                 self.session.add(
                     LeaveCreditTransaction(
                         company_id=request.company_id,

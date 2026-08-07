@@ -11,6 +11,9 @@ When a Streamlit upgrade changes widget appearance, inspect the browser's
 data-testid attributes and update only the widget selector section below.
 """
 
+import base64
+from pathlib import Path
+
 import streamlit as st
 import streamlit.components.v1 as components
 
@@ -1300,6 +1303,26 @@ def apply_theme(
 
     tokens = _get_theme_tokens(primary_color)
 
+    # Reuse the approved login artwork at low intensity in portal pages.
+    background_path = (
+        Path(__file__).resolve().parents[2]
+        / "assets"
+        / "backgrounds"
+        / "login_wave_background.png"
+    )
+    portal_background_data = base64.b64encode(
+        background_path.read_bytes()
+    ).decode("ascii")
+
+    is_dark_theme = get_active_theme() == "dark"
+    # Keep the artwork visible at roughly 25–30% intensity while
+    # preserving readable portal content surfaces.
+    portal_overlay = (
+        "rgba(12, 18, 32, 0.72)"
+        if is_dark_theme
+        else "rgba(247, 249, 252, 0.70)"
+    )
+
     css = f"""
     <style>
     /* =========================================================
@@ -1329,10 +1352,45 @@ def apply_theme(
        APPLICATION BACKGROUND AND DEFAULT TEXT
     ========================================================= */
     html,
-    body,
-    [data-testid="stAppViewContainer"],
-    [data-testid="stMain"] {{
+    body {{
         background: var(--hr-bg) !important;
+        color: var(--hr-text-primary) !important;
+    }}
+
+    /* Stronger multi-wave portal artwork behind the working canvas. */
+    [data-testid="stAppViewContainer"] {{
+        background-color: var(--hr-bg) !important;
+        background-image:
+            linear-gradient({portal_overlay}, {portal_overlay}),
+            url("data:image/png;base64,{portal_background_data}"),
+            url("data:image/png;base64,{portal_background_data}"),
+            url("data:image/png;base64,{portal_background_data}") !important;
+        background-size:
+            cover,
+            118% auto,
+            94% auto,
+            78% auto !important;
+        background-position:
+            center center,
+            center center,
+            -16% 18%,
+            116% 78% !important;
+        background-repeat:
+            no-repeat,
+            no-repeat,
+            no-repeat,
+            no-repeat !important;
+        background-attachment:
+            fixed,
+            fixed,
+            fixed,
+            fixed !important;
+        color: var(--hr-text-primary) !important;
+    }}
+
+    [data-testid="stMain"],
+    [data-testid="stAppViewContainer"] > .main {{
+        background: transparent !important;
         color: var(--hr-text-primary) !important;
     }}
 
@@ -3638,6 +3696,18 @@ div[class*="st-key-notification_bell_container"]
 [data-testid="stDialog"] > div {{
     background: #FFFFFF !important;
     border-radius: 18px !important;
+}}
+
+[data-testid="stDialog"] h1,
+[data-testid="stDialog"] h2,
+[data-testid="stDialog"] h3,
+[data-testid="stDialog"] h4,
+[data-testid="stDialog"] p,
+[data-testid="stDialog"] label,
+[data-testid="stDialog"] [data-testid="stCaptionContainer"],
+[data-testid="stDialog"] [data-testid="stMarkdownContainer"] {{
+    color: #10172A !important;
+    -webkit-text-fill-color: #10172A !important;
 }}
 
 [data-testid="stDialog"] .hr-notification-panel,

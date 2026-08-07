@@ -2,6 +2,8 @@
 
 from models.announcement import Announcement
 from models.company import Company
+from models.company_form import CompanyForm
+from models.company_form_submission import CompanyFormSubmission
 from models.department import Department
 from models.employee import Employee
 from models.employee_training import EmployeeTraining
@@ -21,6 +23,8 @@ from models.user import User
 __all__ = [
     "Announcement",
     "Company",
+    "CompanyForm",
+    "CompanyFormSubmission",
     "Department",
     "Employee",
     "EmployeeTraining",

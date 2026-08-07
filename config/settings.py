@@ -27,7 +27,7 @@ class Settings(BaseSettings):
 
     # Application identity and runtime behavior.
     app_name: str = "AI HR Assistant"
-    app_version: str = "0.8.8.23"
+    app_version: str = "0.8.8.70"
     environment: str = "development"
     debug: bool = True
 
@@ -70,6 +70,10 @@ class Settings(BaseSettings):
     # Company announcement cover images.
     announcement_upload_dir: str = "data/uploads/announcements"
     announcement_upload_max_mb: int = 5
+
+    # Company forms, downloadable templates, and employee submissions.
+    company_form_upload_dir: str = "data/uploads/company_forms"
+    company_form_upload_max_mb: int = 15
 
     # Company-scoped sidebar logos. Uploaded files are normalized to PNG.
     company_logo_upload_dir: str = "data/uploads/company_logos"

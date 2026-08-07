@@ -29,6 +29,9 @@ class EmployeeAccountCreate(BaseModel):
     )
     job_title: str | None = Field(default=None, max_length=150)
     hire_date: date | None = None
+    date_of_birth: date | None = None
+    gender: str | None = Field(default=None, max_length=50)
+    civil_status: str | None = Field(default=None, max_length=50)
     employment_status: Literal["employed", "resigned"] = "employed"
 
     # Direct department entry is supported. Existing callers may still pass
@@ -36,6 +39,7 @@ class EmployeeAccountCreate(BaseModel):
     department_name: str | None = Field(default=None, max_length=150)
     department_id: int | None = None
     manager_id: int | None = None
+    leader_id: int | None = None
 
     trainings: list[TrainingItemInput] = Field(default_factory=list)
 
@@ -106,10 +110,14 @@ class EmployeeMasterUpdate(BaseModel):
     )
     job_title: str | None = Field(default=None, max_length=150)
     hire_date: date | None = None
+    date_of_birth: date | None = None
+    gender: str | None = Field(default=None, max_length=50)
+    civil_status: str | None = Field(default=None, max_length=50)
     employment_status: Literal["employed", "resigned"]
 
     department_name: str | None = Field(default=None, max_length=150)
     manager_id: int | None = None
+    leader_id: int | None = None
     trainings: list[TrainingItemInput] = Field(default_factory=list)
 
     username: str = Field(min_length=3, max_length=100)

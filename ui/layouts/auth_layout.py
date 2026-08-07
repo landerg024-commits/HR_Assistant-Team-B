@@ -23,10 +23,8 @@ def render_login_layout(
 ) -> None:
     """Render company-branded login and account form."""
 
-    render_auth_sidebar(
-        assistant_name=settings.assistant_name,
-        company_name=company_name,
-    )
+    # The login page uses a centered full-width layout without the public
+    # sidebar. Other public authentication pages retain the support sidebar.
     render_login_page(
         default_company_code=default_company_code
     )

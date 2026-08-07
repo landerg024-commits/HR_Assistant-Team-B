@@ -38,6 +38,11 @@ _NOTIFICATION_CATEGORY_RULES: tuple[
         "Leave",
     ),
     (
+        ("company_form", "form_submitted", "form_status"),
+        "📝",
+        "Company Form",
+    ),
+    (
         ("policy", "document"),
         "📘",
         "Policy",
@@ -159,6 +164,8 @@ _NOTIFICATION_CONTEXT_QUERY_KEYS = (
     "leave_request_id",
     "leave_view",
     "policy_id",
+    "company_form_id",
+    "form_submission_id",
     "employee_id",
 )
 
@@ -183,6 +190,8 @@ def _notification_destination(
             return "admin", "Announcements"
         if "leave" in entity:
             return "admin", "Leave Management"
+        if "company_form" in entity or "form_submission" in entity:
+            return "admin", "Company Form/Documents"
         if any(
             value in entity
             for value in ("policy", "document")
@@ -210,6 +219,8 @@ def _notification_destination(
         return "employee", "Dashboard"
     if "leave" in entity:
         return "employee", "Leave Management"
+    if "company_form" in entity or "form_submission" in entity:
+        return "employee", "Company Form/Documents"
     if any(
         value in entity
         for value in ("policy", "document")
@@ -274,6 +285,10 @@ def _notification_entity_query_key(item) -> str | None:
         return "announcement_id"
     if "leave" in entity:
         return "leave_request_id"
+    if "company_form_submission" in entity or "form_submission" in entity:
+        return "form_submission_id"
+    if "company_form" in entity:
+        return "company_form_id"
     if "policy" in entity or "document" in entity:
         return "policy_id"
     if any(
@@ -312,6 +327,16 @@ def _open_notification(
         )
     )
 
+    # Employee form submissions are administrator work items even when an
+    # administrator happens to be browsing the Employee Portal.
+    normalized_event_type = str(item.event_type or "").strip().casefold()
+    if (
+        normalized_event_type == "company_form_submitted"
+        and current_user.clearance == 1
+    ):
+        target_portal = "admin"
+        target_page = "Company Form/Documents"
+
     for query_key in _NOTIFICATION_CONTEXT_QUERY_KEYS:
         if query_key in st.query_params:
             del st.query_params[query_key]
@@ -344,6 +369,12 @@ def _open_notification(
         st.session_state[
             "notification_related_entity_id"
         ] = item.related_entity_id
+
+    entity = str(item.related_entity_type or item.event_type or "").strip().casefold()
+    if "company_form" in entity or "form_submission" in entity:
+        st.session_state["company_forms_next_tab"] = (
+            "Overview" if target_portal == "admin" else "Fill / Submit"
+        )
 
     st.session_state[_NOTIFICATION_PANEL_KEY] = False
     set_navigation_state(

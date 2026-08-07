@@ -57,6 +57,7 @@ class EmployeeRepository(BaseRepository[Employee]):
             .options(
                 joinedload(Employee.department),
                 joinedload(Employee.manager).joinedload(Employee.user),
+                joinedload(Employee.leader).joinedload(Employee.user),
                 joinedload(Employee.user),
                 selectinload(Employee.trainings),
             )
@@ -95,6 +96,7 @@ class EmployeeRepository(BaseRepository[Employee]):
             .options(
                 joinedload(Employee.department),
                 joinedload(Employee.manager),
+                joinedload(Employee.leader),
                 joinedload(Employee.user),
                 selectinload(Employee.trainings),
             )

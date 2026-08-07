@@ -2482,3 +2482,65 @@ No database migration is required.
 - Notification clicks open the related announcement through the existing refresh-safe announcement deep link.
 - Employee announcement cards display the configured event/activity schedule, while reminder status remains admin-only.
 - Existing databases receive additive event and reminder columns without deleting announcement records.
+
+## Reset local leave test data
+
+Stop Streamlit, then run the leave-only cleanup command from the project root:
+
+```powershell
+python -m scripts.reset_leave_test_data --confirm
+```
+
+The command creates an SQLite backup, clears leave requests, balances, credit
+history, linked notifications, and leave attachments, then recreates clean
+current-year balances. Employees, users, companies, departments, and leave
+types are preserved.
+
+## v8.8.52 — Annual SL/VL Accrual Phase 2
+
+Vacation Leave and Sick Leave now receive 15 days every January. Employees
+with at least five completed service years on January 1 receive 17 days for
+each leave type. Mid-year service anniversaries take effect on the next January
+processing. Unused SL/VL is carried into the following year's Beginning Credit.
+The processing is idempotent and also runs automatically after authenticated
+application startup.
+
+Optional explicit batch command:
+
+```powershell
+python -m scripts.process_january_leave_accrual
+```
+
+The command accepts `--year` and `--company-code`. Cash conversion remains for
+Phase 3, while the three-day Emergency Leave allowance remains for Phase 4.
+
+## v8.8.56 — SL/VL Cash Conversion Phase 3
+
+January annual leave processing now retains a maximum of 15 Sick Leave days and 45 Vacation Leave days. Excess credits are recorded in the Converted to Cash column and removed from Available Credits. Processing is automatic and idempotent, and converted credits are not carried into the next year.
+
+
+## v8.8.57 — Manual SL/VL Cash Conversion Guard
+
+Manual SL/VL credit updates now enforce the fixed retained limits immediately. Excess credits are moved to Converted to Cash in the same transaction.
+
+
+## v8.8.58 — Emergency Leave Phase 4
+
+- Emergency Leave is limited to three paid days per calendar year.
+- EL does not create additional credits; approved EL days deduct from VL.
+- The EL row displays used days and remaining annual allowance.
+- Approved EL days beyond the remaining allowance automatically become LWOP.
+- Admin manual credit editing excludes the system-managed EL allowance.
+
+
+## v8.8.70 — Company Form Preview and Table UI Fix
+
+- PDF files now use the supported in-app Streamlit PDF viewer instead of the blank browser iframe.
+- Category and Description were removed from Upload Form, Manage Form, and employee-facing form details.
+- Existing hidden metadata remains preserved for older records.
+- Row-click tables keep their popup behavior and now use the same light surface, border, radius, shadow, and row spacing as the other project tables.
+- Modal headings and captions remain readable against the white preview surface.
+
+## Current checkpoint
+
+**v8.8.70 — Company Form Preview and Table UI Fix**
