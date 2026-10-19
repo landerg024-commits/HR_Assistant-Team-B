@@ -1,0 +1,60 @@
+{
+  "base": "v8.8.249 CLEAN + cumulative QA45 Contiguous Policy Chain pilot",
+  "files": {
+    "ui/pages/admin/audit_trail_page.py": {
+      "old_sha256": "79056117d96cf1b1c9e773039a65240a0124780819fe5546766a0e9423d5c1fb",
+      "new_sha256": "a5d4f52f636f977071a0d4fb0220d592b99e6e3ca9c4d64b7bb32b3a55fef34d",
+      "preexisting": true
+    },
+    "ui/pages/admin/employees_page.py": {
+      "old_sha256": "91af4724dd7e1565959a450f139d179f0f8dda1f0bc254dcccee4c6c4476662f",
+      "new_sha256": "a9496006f6b637837a1aa0425dd2635c2c3bb00a122bf32281b9107d198503f9",
+      "preexisting": true
+    },
+    "ui/pages/admin/onboarding_management.py": {
+      "old_sha256": "bc412d4e079493d6b8586df6e01811830a6c1bc9607578dc08251000f0c80351",
+      "new_sha256": "868afde23759379b3d433c9d5fd504ac7d8a17a48a2e28cf5f1ae542699f7c8d",
+      "preexisting": true
+    },
+    "ui/pages/admin/hr_contacts_management.py": {
+      "old_sha256": "31ac948d2eb3b65d803ad15b6ce7662e712a5a7f17577b632741bf44ea2368ed",
+      "new_sha256": "04803c24aa045454c40efca3b9eb43c956fe475c4df76be8fee30a09f0db52f2",
+      "preexisting": true
+    },
+    "ui/components/disciplinary_records.py": {
+      "old_sha256": "40dd9d4307024f8c4f243e8cecec79befd8cc2597c7c20f4c171e104221334c4",
+      "new_sha256": "23fd7a039879390cd63492e3313d1858cd22da6067d334d484d70702cdb5eae2",
+      "preexisting": true
+    },
+    "ui/pages/user/leave_management_page.py": {
+      "old_sha256": "9b16463baa8dcbbe95dc279244be1a374c3d752591467a50afc79abc2da016c2",
+      "new_sha256": "f6268970d49e51786b0aa8510c48ad2443a5bbdf2ca61acfa13c815768d2d6b0",
+      "preexisting": true
+    },
+    "ui/pages/admin/integrations_page.py": {
+      "old_sha256": "afa416400ac39a1d301d7ae97689291d8b3b4caaeef56c447e4c32cf7a00f1fd",
+      "new_sha256": "3d0d5f6a769f729efa0e6d0fab91f1d0e3e25e51c2c6b45f1fa40811e4671e02",
+      "preexisting": true
+    },
+    "services/edit_conflict.py": {
+      "old_sha256": "d8826bbf8b6f67fdc460ffc88f420da01a8f86e66dffe4370d4da0799107d4c2",
+      "new_sha256": "6e46c8b99cebc0851187ddd1e9a83397de7a787b490a41db1e069a1cc65caa47",
+      "preexisting": true
+    },
+    "services/audit_trail_service.py": {
+      "old_sha256": "66a3a75920b2aaa12ce891f7df0cff258405e7dfb6cc4e99f24e8fbcb704454b",
+      "new_sha256": "fe2d15faf8445d03827bcb9fdf3e0b49be4e061019435573ea38e9b830e7a382",
+      "preexisting": true
+    },
+    "utils/utc_timestamps.py": {
+      "old_sha256": null,
+      "new_sha256": "76301c2b20233f78a7e072f5f4212abaa2a97603009661f62402cbd7d5a77d65",
+      "preexisting": false
+    },
+    "tests/test_v88249_audit_history_timezone_display.py": {
+      "old_sha256": null,
+      "new_sha256": "246baa90576b78fcda55acb87cd528a8286bb6806a3d8b00c4a54310d8373337",
+      "preexisting": false
+    }
+  }
+}

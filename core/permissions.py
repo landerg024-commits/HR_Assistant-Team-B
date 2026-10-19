@@ -1,0 +1,5 @@
+ROLE_SUPER_ADMIN = 'super_admin'
+ROLE_COMPANY_ADMIN = 'company_admin'
+ROLE_HR_ADMIN = 'hr_admin'
+ROLE_MANAGER = 'manager'
+ROLE_EMPLOYEE = 'employee'

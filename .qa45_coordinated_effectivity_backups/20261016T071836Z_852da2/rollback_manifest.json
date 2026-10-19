@@ -1,0 +1,6 @@
+{
+  "modified": [
+    "modules/smart_ai/portal_ai.py",
+    "tests/test_qa45_coordinated_effectivity_evidence.py"
+  ]
+}

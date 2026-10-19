@@ -1,0 +1,15 @@
+{
+  "modified": [
+    "ui/pages/admin/audit_trail_page.py",
+    "ui/pages/admin/employees_page.py",
+    "ui/pages/admin/onboarding_management.py",
+    "ui/pages/admin/hr_contacts_management.py",
+    "ui/components/disciplinary_records.py",
+    "ui/pages/user/leave_management_page.py",
+    "ui/pages/admin/integrations_page.py",
+    "services/edit_conflict.py",
+    "services/audit_trail_service.py",
+    "utils/utc_timestamps.py",
+    "tests/test_v88249_audit_history_timezone_display.py"
+  ]
+}

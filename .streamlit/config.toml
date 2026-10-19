@@ -1,0 +1,16 @@
+[client]
+# Hide Streamlit developer options such as Clear caches.
+# This leaves Ctrl/Cmd+C entirely to the browser's normal Copy action.
+toolbarMode = "viewer"
+
+[theme]
+# Keep native data grids aligned with the application's fixed Light Mode.
+base = "light"
+backgroundColor = "#F7F9FC"
+secondaryBackgroundColor = "#F3F5FA"
+textColor = "#10172A"
+
+[server]
+# Avoid Streamlit lazy Transformers image inspection warnings on direct VS Code runs.
+# Set to "auto" locally if development hot-reload is required.
+fileWatcherType = "none"

@@ -1,0 +1,31 @@
+AI HR ASSISTANT v8.8.242 — PROVIDER SWITCH GUIDE
+==================================================
+Made as a separate release from v8.8.241. No UI/RAG/HR business logic changes.
+
+In your existing .env, ADD these lines (do not replace the file or share secrets):
+
+SMART_AI_LLM_MODE=local
+SMART_AI_GROQ_API_KEY=
+SMART_AI_GROQ_MODEL=qwen/qwen3.8-27b
+SMART_AI_GROQ_TIMEOUT_SECONDS=25
+
+MODE: local = only Ollama (default); groq = only Groq;
+      hybrid = Groq first then Ollama on error/missing key/timeout.
+Switch the single SMART_AI_LLM_MODE value as needed. The Groq secret
+can also be provided via GROQ_API_KEY. Restart Streamlit/Python after edits.
+
+Cloud warning: Groq and Hybrid send authorized company evidence and the
+user question in the prompt to Groq. Approval required for HR data use.
+The Groq Qwen3.8 model is Preview; verify access, pricing and quota.
+No Groq SDK is needed. Requests use a fixed official HTTPS endpoint.
+
+OFFLINE TEST:
+python -m pytest -q tests/test_v88242_llm_mode_switch.py
+
+LIVE RETEST:
+python Terminal_QA_Test/run_terminal_qa.py --suite 45 --portal admin --limit 5
+
+Running v8.8.241 QA? Keep that directory untouched; install this build
+in a SEPARATE location with your own authorized DB/attachments/config.
+For upgrading a copy of v8.8.241, the PATCH_ONLY ZIP contains only the
+changed source/settings example/docs and cannot overwrite SQLite or Qdrant.

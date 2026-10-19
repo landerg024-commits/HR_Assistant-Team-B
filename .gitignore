@@ -1,0 +1,29 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+.vscode/
+.idea/
+*.db
+*.sqlite*
+logs/
+*.log
+data/uploads/*
+data/exports/*
+!data/uploads/.gitkeep
+!data/exports/.gitkeep
+.pytest_cache/
+.coverage
+htmlcov/
+Thumbs.db
+.DS_Store
+
+data/dev_mail_outbox/*
+!data/dev_mail_outbox/.gitkeep
+
+# Private automatically generated cookie-signing secret.
+data/.auth_cookie_secret
+
+# Local Qdrant vector index cache (rebuilt from authorized source documents).
+data/smart_ai/qdrant/*
+!data/smart_ai/qdrant/.gitkeep

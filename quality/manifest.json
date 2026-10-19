@@ -1,0 +1,15 @@
+{
+  "base": "v8.8.249 cumulative Contiguous Policy Chain Pilot",
+  "files": {
+    "modules/smart_ai/portal_ai.py": {
+      "old_sha256": "68e0b72f899e15a3d453dbf2c96b2161d85f8bc57173cfa57ee2b0978b972537",
+      "new_sha256": "96a8b76e644f7571e32ac502c2f9071ff2d63dd7801b1431ea35baa72ff8ea2e",
+      "preexisting": true
+    },
+    "tests/test_qa45_generalized_source_evidence.py": {
+      "old_sha256": null,
+      "new_sha256": "d057e6f8c3cfa647edd7d9c545ceda2a1abdd10625c3c8ff3e1cc88268d64d0d",
+      "preexisting": false
+    }
+  }
+}
